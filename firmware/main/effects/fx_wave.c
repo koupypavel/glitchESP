@@ -91,6 +91,7 @@ const fx_desc_t fx_wave = {
     .params = s_params,
     .in_place = false,
     .temporal = false,
+    .cost = FX_COST_LIGHT,
     .from_amount = from_amount,
     .apply = apply,
 };

@@ -137,6 +137,39 @@ for the half-resolution preview path.
    `fxlab --list` prints every effect and parameter. `--repeat 50` gives a rough timing.
 5. Flash. The chip appears in the control bar automatically.
 
-Performance rule of thumb on the ESP32-P4: a single pass over 720x1280 that does a few integer
-operations per pixel costs on the order of 20 to 40 ms. Anything that touches each pixel more
-than once, or sorts, needs the half-resolution preview path planned for M3.
+## 8. Performance on the ESP32-P4 (measured, rev v1.3, PSRAM at 200 MHz)
+
+Everything below was measured on the device with the camera running and the display active.
+
+**The memory bus is the budget, not the ALU.** Frames live in PSRAM. One pass that reads and
+writes a 720x1280 RGB565 frame costs about 27 ms even as a plain `memcpy`; a loop doing
+one 16-bit load and store per pixel costs 43 ms, and a loop doing 32-bit loads and stores
+(two pixels per word) costs 28 to 30 ms. The same loops on internal RAM take 6 to 12 ms. So:
+
+- process two pixels per 32-bit word wherever the effect allows it (`fx_bitcrush.c` does),
+- never divide or modulo per pixel (35 cycles each), precompute per row or use lookup tables,
+- prefer row-oriented access; a column walk touches a cache line per pixel and costs ~1 s/frame,
+- one pass is the unit of cost: a three-effect chain is three passes.
+
+**Do not let anything else stream through PSRAM while effects run.** The first design drew the
+video through an LVGL canvas, which copied every frame a second time on core 0 and slowed the
+effects on core 1 by 3x. The current design writes video straight into the panel frame buffers
+(`display/`) and LVGL only renders widgets into a side layer that is stamped on (`ui/ui_lvgl.c`).
+
+**Half-resolution preview.** With `FP_QUALITY_AUTO` the pipeline runs a chain whose summed
+`cost` reaches `FX_COST_HEAVY` at 360x640 (2x2 point sampling in, pixel doubling out), a
+quarter of the work. The saved JPEG is the same doubled frame, so capture still matches the
+preview. Light chains stay at full resolution.
+
+**Measured per-frame cost at full resolution** (fx stage only): scanline 17 ms, wave 29 ms,
+blocks 39 ms, channel shift 92 ms, bit crush ~94 ms before the two-pixel rewrite, pixel sort
+(rows) 122 ms. The camera delivers a frame every 52 ms (19 fps), so anything under ~45 ms keeps
+the preview at full rate.
+
+**Other lessons that cost hours:** the OV5647 mode table's "50 fps" is really 16 fps (frame
+length 1732 lines x line length 2394 clocks at a 64 MHz pixel clock); frame length can go down
+to ~1470 (the readout window is 1447 lines tall), line length cannot go below ~2250; the
+sensor's built-in AEC does not adapt in this setup, so `pipeline/auto_exposure.c` drives
+exposure and gain manually; gain and exposure registers must be written while streaming
+(values written before stream-on produce black or saturated frames); the gain register is
+linear in 1/16 steps (0x10 = 1x, 10 bits).

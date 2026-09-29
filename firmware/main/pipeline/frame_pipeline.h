@@ -78,6 +78,11 @@ void frame_pipeline_set_amount(float amount);             /* re-maps every slot 
 void frame_pipeline_set_seed(uint32_t seed);
 uint32_t frame_pipeline_reroll(void);                     /* new random seed, returns it */
 
+/* ---- preview quality ---- */
+typedef enum { FP_QUALITY_AUTO = 0, FP_QUALITY_FULL, FP_QUALITY_HALF } fp_quality_t;
+void frame_pipeline_set_quality(fp_quality_t q);
+bool frame_pipeline_last_was_half(void);   /* true if the last frame ran the effects at 360x640 */
+
 /* ---- stats ---- */
 uint32_t frame_pipeline_get_fps(void);      /* camera frames processed per second */
 uint32_t frame_pipeline_get_fx_us(void);    /* effect stage duration of the last frame, microseconds */

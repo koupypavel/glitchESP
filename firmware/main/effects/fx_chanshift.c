@@ -87,6 +87,7 @@ const fx_desc_t fx_chanshift = {
     .params = s_params,
     .in_place = false,
     .temporal = false,
+    .cost = FX_COST_HEAVY,
     .from_amount = from_amount,
     .apply = apply,
 };

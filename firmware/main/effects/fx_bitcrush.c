@@ -76,20 +76,30 @@ static void FX_HOT apply(const fx_frame_t *in, fx_frame_t *out, const float *p, 
         const uint16_t *src = in->px + (size_t)y * in->stride_px;
         uint16_t *dst = out->px + (size_t)y * out->stride_px;
         const uint8_t *brow = s_bayer[y & 3];
-        const uint8_t *lr[4] = { s_lut_r[brow[0]], s_lut_r[brow[1]], s_lut_r[brow[2]], s_lut_r[brow[3]] };
-        const uint8_t *lg[4] = { s_lut_g[brow[0]], s_lut_g[brow[1]], s_lut_g[brow[2]], s_lut_g[brow[3]] };
-        const uint8_t *lb[4] = { s_lut_b[brow[0]], s_lut_b[brow[1]], s_lut_b[brow[2]], s_lut_b[brow[3]] };
-        int x = 0, w = in->w;
-        for (; x + 4 <= w; x += 4) {
-            for (int k = 0; k < 4; k++) {
-                uint16_t px = src[x + k];
-                dst[x + k] = fx_rgb565(lr[k][px >> 11], lg[k][(px >> 5) & 0x3f], lb[k][px & 0x1f]);
+        /* per-column-phase tables: x&3 = 0,1,2,3 */
+        const uint8_t *r0 = s_lut_r[brow[0]], *r1 = s_lut_r[brow[1]], *r2 = s_lut_r[brow[2]], *r3 = s_lut_r[brow[3]];
+        const uint8_t *g0 = s_lut_g[brow[0]], *g1 = s_lut_g[brow[1]], *g2 = s_lut_g[brow[2]], *g3 = s_lut_g[brow[3]];
+        const uint8_t *b0 = s_lut_b[brow[0]], *b1 = s_lut_b[brow[1]], *b2 = s_lut_b[brow[2]], *b3 = s_lut_b[brow[3]];
+        int w = in->w, x = 0;
+        if ((((uintptr_t)src | (uintptr_t)dst) & 3) == 0) {
+            /* two pixels per 32-bit word: halves the PSRAM transactions */
+            const uint32_t *s32 = (const uint32_t *)src;
+            uint32_t *d32 = (uint32_t *)dst;
+            for (; x + 4 <= w; x += 4) {
+                uint32_t w0 = s32[x >> 1], w1 = s32[(x >> 1) + 1];
+                uint32_t pa = w0 & 0xffff, pb = w0 >> 16, pc = w1 & 0xffff, pd = w1 >> 16;
+                uint32_t qa = ((uint32_t)r0[pa >> 11] << 11) | ((uint32_t)g0[(pa >> 5) & 0x3f] << 5) | b0[pa & 0x1f];
+                uint32_t qb = ((uint32_t)r1[pb >> 11] << 11) | ((uint32_t)g1[(pb >> 5) & 0x3f] << 5) | b1[pb & 0x1f];
+                uint32_t qc = ((uint32_t)r2[pc >> 11] << 11) | ((uint32_t)g2[(pc >> 5) & 0x3f] << 5) | b2[pc & 0x1f];
+                uint32_t qd = ((uint32_t)r3[pd >> 11] << 11) | ((uint32_t)g3[(pd >> 5) & 0x3f] << 5) | b3[pd & 0x1f];
+                d32[x >> 1] = qa | (qb << 16);
+                d32[(x >> 1) + 1] = qc | (qd << 16);
             }
         }
         for (; x < w; x++) {
             uint16_t px = src[x];
-            int k = x & 3;
-            dst[x] = fx_rgb565(lr[k][px >> 11], lg[k][(px >> 5) & 0x3f], lb[k][px & 0x1f]);
+            const uint8_t *lr = s_lut_r[brow[x & 3]], *lg = s_lut_g[brow[x & 3]], *lb = s_lut_b[brow[x & 3]];
+            dst[x] = fx_rgb565(lr[px >> 11], lg[(px >> 5) & 0x3f], lb[px & 0x1f]);
         }
     }
 }
@@ -101,6 +111,7 @@ const fx_desc_t fx_bitcrush = {
     .params = s_params,
     .in_place = true,
     .temporal = false,
+    .cost = FX_COST_HEAVY,
     .from_amount = from_amount,
     .apply = apply,
 };

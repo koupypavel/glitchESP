@@ -17,6 +17,10 @@ extern "C" {
 #define FX_MAX_PARAMS   8
 #define FX_CHAIN_MAX    3
 
+#define FX_COST_LIGHT   1     /* ~1 memcpy pass (scanline, wave) */
+#define FX_COST_MEDIUM  2     /* 1-2 per-pixel passes (blocks) */
+#define FX_COST_HEAVY   3     /* multi-tap per-pixel or sorting (chanshift, bitcrush, pixelsort) */
+
 /*
  * On the ESP32-P4 this firmware executes code from PSRAM (XIP). Effect inner loops must live
  * in internal RAM or they fight the pixel data for cache and bus bandwidth (measured 3x).
@@ -57,6 +61,7 @@ typedef struct fx_desc {
     const fx_param_t *params;
     bool in_place;            /* apply() tolerates in == out */
     bool temporal;            /* uses ctx->prev */
+    uint8_t cost;             /* FX_COST_LIGHT / MEDIUM / HEAVY: guides the half-resolution preview decision */
     /* Fill `params` from a single 0..1 "amount" knob (the one-knob mapping). */
     void (*from_amount)(float amount, float *params);
     /* Render `in` -> `out`. Both frames have equal w/h. */

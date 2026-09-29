@@ -105,16 +105,25 @@ static void bench_task(void *arg)
         fx_chain_add(&chain, fx_registry_get(i));
         frame_pipeline_set_chain(&chain);
         frame_pipeline_set_amount(0.6f);
-        ESP_LOGI(TAG, "=== effect: %s ===", fx_registry_get(i)->id);
-        vTaskDelay(pdMS_TO_TICKS(5000));
+        frame_pipeline_set_quality(FP_QUALITY_FULL);
+        ESP_LOGI(TAG, "=== effect: %s (full) ===", fx_registry_get(i)->id);
+        vTaskDelay(pdMS_TO_TICKS(4500));
+        frame_pipeline_set_quality(FP_QUALITY_HALF);
+        ESP_LOGI(TAG, "=== effect: %s (half) ===", fx_registry_get(i)->id);
+        vTaskDelay(pdMS_TO_TICKS(4500));
     }
     fx_chain_clear(&chain);
     fx_chain_add(&chain, fx_registry_find("chanshift"));
     fx_chain_add(&chain, fx_registry_find("scanline"));
     fx_chain_add(&chain, fx_registry_find("bitcrush"));
     frame_pipeline_set_chain(&chain);
-    ESP_LOGI(TAG, "=== chain: chanshift scanline bitcrush ===");
-    vTaskDelay(pdMS_TO_TICKS(5000));
+    frame_pipeline_set_quality(FP_QUALITY_FULL);
+    ESP_LOGI(TAG, "=== chain: chanshift scanline bitcrush (full) ===");
+    vTaskDelay(pdMS_TO_TICKS(4500));
+    frame_pipeline_set_quality(FP_QUALITY_HALF);
+    ESP_LOGI(TAG, "=== chain (half) ===");
+    vTaskDelay(pdMS_TO_TICKS(4500));
+    frame_pipeline_set_quality(FP_QUALITY_AUTO);
 
     fx_chain_clear(&chain);
     frame_pipeline_set_chain(&chain);

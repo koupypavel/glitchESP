@@ -20,10 +20,16 @@ static const char *TAG = "pipeline";
 
 #define ALIGN_UP(num, align) (((num) + ((align) - 1)) & ~((align) - 1))
 #define CROP_X          ((FP_CAM_W - FP_OUT_W) / 2)  /* 40 px: centered window */
+#define HALF_W          (FP_OUT_W / 2)
+#define HALF_H          (FP_OUT_H / 2)
+#define HALF_BYTES      (HALF_W * HALF_H * 2)
 
 typedef struct {
     size_t cache_line;
     uint8_t *tmp_buf;                 /* ping-pong buffer for multi-effect chains */
+    uint16_t *half_in, *half_tmp, *half_out;   /* 360x640 working frames for the half-res path */
+    volatile fp_quality_t quality;
+    volatile bool last_half;
     uint32_t seq;
 
     /* recipe shared with the UI; guarded by `lock` */
@@ -44,8 +50,6 @@ typedef struct {
     volatile uint32_t fx_us;
     int64_t last_end_us;
     uint64_t acc_wait_us, acc_fx_us, acc_copy_us, acc_ui_us, acc_total_us;
-    /* effect time per (camera buffer, frame buffer) pair, to spot cache-conflict pairs */
-    uint32_t pair_min[FP_CAM_BUFS][DISP_FB_NUM], pair_max[FP_CAM_BUFS][DISP_FB_NUM], pair_n[FP_CAM_BUFS][DISP_FB_NUM];
 } pipeline_t;
 
 static pipeline_t s_p = {
@@ -59,6 +63,10 @@ esp_err_t frame_pipeline_init(void)
     size_t len = ALIGN_UP(FP_OUT_BYTES, s_p.cache_line);
     s_p.tmp_buf = heap_caps_aligned_calloc(s_p.cache_line, 1, len, MALLOC_CAP_SPIRAM);
     ESP_RETURN_ON_FALSE(s_p.tmp_buf, ESP_ERR_NO_MEM, TAG, "tmp buffer");
+    s_p.half_in  = heap_caps_aligned_calloc(s_p.cache_line, 1, HALF_BYTES, MALLOC_CAP_SPIRAM);
+    s_p.half_tmp = heap_caps_aligned_calloc(s_p.cache_line, 1, HALF_BYTES, MALLOC_CAP_SPIRAM);
+    s_p.half_out = heap_caps_aligned_calloc(s_p.cache_line, 1, HALF_BYTES, MALLOC_CAP_SPIRAM);
+    ESP_RETURN_ON_FALSE(s_p.half_in && s_p.half_tmp && s_p.half_out, ESP_ERR_NO_MEM, TAG, "half buffers");
 
     fx_chain_clear(&s_p.recipe.chain);
     s_p.recipe.seed = esp_random();
@@ -82,6 +90,42 @@ static void IRAM_ATTR copy_window(const uint16_t *src, uint32_t src_stride, uint
     for (int y = 0; y < FP_OUT_H; y++) {
         memcpy(dst + (size_t)y * FP_OUT_W, src + (size_t)y * src_stride, FP_OUT_W * 2);
     }
+}
+
+/* 2x2 point-sampled downscale of the camera window: reads every other row/pixel. */
+static void IRAM_ATTR downscale_2x(const uint16_t *src, uint32_t src_stride, uint16_t *dst)
+{
+    for (int y = 0; y < HALF_H; y++) {
+        const uint32_t *s32 = (const uint32_t *)(src + (size_t)(2 * y) * src_stride);
+        uint32_t *d32 = (uint32_t *)(dst + (size_t)y * HALF_W);
+        for (int x = 0; x < HALF_W; x += 2) {
+            uint32_t a = s32[x], b = s32[x + 1];            /* 4 source pixels: a.lo a.hi b.lo b.hi */
+            d32[x >> 1] = (a & 0xffff) | (b << 16);        /* keep a.lo and b.lo */
+        }
+    }
+}
+
+/* 2x pixel-doubling upscale into a 720x1280 frame buffer, 32-bit writes. */
+static void IRAM_ATTR upscale_2x(const uint16_t *src, uint16_t *dst)
+{
+    for (int y = 0; y < HALF_H; y++) {
+        const uint16_t *s = src + (size_t)y * HALF_W;
+        uint32_t *d0 = (uint32_t *)(dst + (size_t)(2 * y) * FP_OUT_W);
+        for (int x = 0; x < HALF_W; x++) {
+            uint32_t p = s[x];
+            d0[x] = p | (p << 16);
+        }
+        memcpy(d0 + HALF_W, d0, FP_OUT_W * 2);              /* second row = copy of the first */
+    }
+}
+
+static bool chain_prefers_half(const fx_chain_t *c)
+{
+    int cost = 0;
+    for (int i = 0; i < c->count; i++) {
+        if (c->slots[i].enabled && c->slots[i].fx) cost += c->slots[i].fx->cost;
+    }
+    return cost >= FX_COST_HEAVY;     /* one heavy effect, or two+ lighter ones */
 }
 
 void frame_pipeline_on_camera_frame(uint8_t *camera_buf, uint8_t cam_idx,
@@ -118,18 +162,25 @@ void frame_pipeline_on_camera_frame(uint8_t *camera_buf, uint8_t cam_idx,
         s_p.fx_us = 0;
         s_p.acc_copy_us += (uint64_t)(esp_timer_get_time() - t0);
     } else {
-        fx_frame_t in  = { (uint16_t *)cam_px, FP_OUT_W, FP_OUT_H, FP_CAM_W };
-        fx_frame_t dst = { fb, FP_OUT_W, FP_OUT_H, FP_OUT_W };
-        fx_frame_t tmp = { (uint16_t *)s_p.tmp_buf, FP_OUT_W, FP_OUT_H, FP_OUT_W };
+        fp_quality_t q = s_p.quality;
+        bool half = (q == FP_QUALITY_HALF) || (q == FP_QUALITY_AUTO && chain_prefers_half(&recipe.chain));
         fx_ctx_t ctx = { .seed = recipe.seed, .frame_no = recipe.frame_no, .prev = NULL };
-        fx_chain_apply(&recipe.chain, &in, &dst, &tmp, &ctx);
+        if (half) {
+            downscale_2x(cam_px, FP_CAM_W, s_p.half_in);
+            fx_frame_t in  = { s_p.half_in,  HALF_W, HALF_H, HALF_W };
+            fx_frame_t dst = { s_p.half_out, HALF_W, HALF_H, HALF_W };
+            fx_frame_t tmp = { s_p.half_tmp, HALF_W, HALF_H, HALF_W };
+            fx_chain_apply(&recipe.chain, &in, &dst, &tmp, &ctx);
+            upscale_2x(s_p.half_out, fb);
+        } else {
+            fx_frame_t in  = { (uint16_t *)cam_px, FP_OUT_W, FP_OUT_H, FP_CAM_W };
+            fx_frame_t dst = { fb, FP_OUT_W, FP_OUT_H, FP_OUT_W };
+            fx_frame_t tmp = { (uint16_t *)s_p.tmp_buf, FP_OUT_W, FP_OUT_H, FP_OUT_W };
+            fx_chain_apply(&recipe.chain, &in, &dst, &tmp, &ctx);
+        }
+        s_p.last_half = half;
         s_p.fx_us = (uint32_t)(esp_timer_get_time() - t0);
         s_p.acc_fx_us += s_p.fx_us;
-        if (cam_idx < FP_CAM_BUFS) {
-            uint32_t *mn = &s_p.pair_min[cam_idx][fb_idx], *mx = &s_p.pair_max[cam_idx][fb_idx];
-            if (s_p.pair_n[cam_idx][fb_idx]++ == 0 || s_p.fx_us < *mn) *mn = s_p.fx_us;
-            if (s_p.fx_us > *mx) *mx = s_p.fx_us;
-        }
     }
     /* the camera buffer is no longer needed */
     app_video_release_frame(cam_idx);
@@ -171,9 +222,10 @@ void frame_pipeline_on_camera_frame(uint8_t *camera_buf, uint8_t cam_idx,
         }
         s_p.fps_value = s_p.fps_count / 2;
         ae_state_t ae; auto_exposure_get(&ae);
-        ESP_LOGI(TAG, "cam %lu fps | wait %lu, copy %lu, fx %lu, ui %lu, total %lu us | luma %u expo %lu gain %lu/16 | %s",
+        ESP_LOGI(TAG, "cam %lu fps | wait %lu, copy %lu, fx %lu%s, ui %lu, total %lu us | luma %u expo %lu gain %lu/16 | %s",
                  (unsigned long)s_p.fps_value, (unsigned long)(s_p.acc_wait_us / n),
                  (unsigned long)(s_p.acc_copy_us / n), (unsigned long)(s_p.acc_fx_us / n),
+                 s_p.last_half ? " (half)" : "",
                  (unsigned long)(s_p.acc_ui_us / n), (unsigned long)(s_p.acc_total_us / n),
                  ae.measured_luma, (unsigned long)ae.exposure_lines, (unsigned long)ae.gain_x16,
                  chain_str[0] ? chain_str : "(no fx)");
@@ -240,6 +292,9 @@ uint32_t frame_pipeline_reroll(void)
     frame_pipeline_set_seed(seed);
     return seed;
 }
+
+void frame_pipeline_set_quality(fp_quality_t q) { s_p.quality = q; }
+bool frame_pipeline_last_was_half(void)         { return s_p.last_half; }
 
 uint32_t frame_pipeline_get_fps(void)   { return s_p.fps_value; }
 uint32_t frame_pipeline_get_fx_us(void) { return s_p.fx_us; }

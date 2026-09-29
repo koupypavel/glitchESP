@@ -68,7 +68,7 @@ void app_main(void)
     }
 
 #if GLITCH_BENCH
-    bench_microbench_on_core1();     /* system quiet: no camera yet, LVGL idle */
+    /* bench_microbench_on_core1(); */   /* one-off measurement, see docs/EFFECTS.md */
 #endif
 
     /* Pipeline buffers + PPA, capture engine */
