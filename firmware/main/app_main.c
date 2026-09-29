@@ -1,5 +1,5 @@
 /*
- * glitchESP — M1 skeleton camera app.
+ * glitchESP ??? M1 skeleton camera app.
  * Camera (OV5647 / MIPI-CSI) -> ISP -> RGB565 -> [effects] -> panel frame buffer (+UI layer) on the 720x1280 LCD.
  * BOOT button = shutter: hardware JPEG encode of the displayed frame -> /sdcard/GLITCH.
  */

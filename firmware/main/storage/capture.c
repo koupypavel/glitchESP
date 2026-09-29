@@ -14,6 +14,7 @@
 #include "mbedtls/base64.h"
 #include "capture.h"
 #include "frame_pipeline.h"
+#include "settings.h"
 
 static const char *TAG = "capture";
 
@@ -99,7 +100,7 @@ static void write_sidecar(const char *jpg_path, uint32_t jpeg_bytes, uint32_t se
             "  \"frame_no\": %lu,\n"
             "  \"effects\": [",
             strrchr(jpg_path, '/') ? strrchr(jpg_path, '/') + 1 : jpg_path,
-            FP_OUT_W, FP_OUT_H, (unsigned long)jpeg_bytes, CAPTURE_JPEG_QUALITY,
+            FP_OUT_W, FP_OUT_H, (unsigned long)jpeg_bytes, settings_get()->jpeg_quality,
             (unsigned long)seq, (long long)(esp_timer_get_time() / 1000),
             (double)r->amount, (unsigned long)r->seed, (unsigned long)r->frame_no);
     int written = 0;
@@ -131,7 +132,7 @@ static void capture_task(void *arg)
             .height = FP_OUT_H,
             .src_type = JPEG_ENCODE_IN_FORMAT_RGB565,
             .sub_sample = JPEG_DOWN_SAMPLING_YUV420,
-            .image_quality = CAPTURE_JPEG_QUALITY,
+            .image_quality = settings_get()->jpeg_quality,
             .pixel_reverse = false,
         };
         uint32_t out_size = 0;
