@@ -1,0 +1,16 @@
+## glitchESP dependencies (ESP Component Registry)
+dependencies:
+  idf: ">=5.5"
+
+  lvgl/lvgl: "9.5.0"
+
+  espressif/esp_video:
+    version: "~2.0"
+    public: true
+
+  # Board support: display, touch, I2C, SD card, audio codec
+  waveshare/esp32_p4_wifi6_touch_lcd_5: "^1.0.4"
+  waveshare/esp_lcd_hx8394: "^2.1.0"
+
+  # GPIO button driver (shutter)
+  espressif/button: "^4"
