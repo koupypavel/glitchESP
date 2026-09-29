@@ -22,6 +22,7 @@
 #include "ov5647_ctl.h"
 #include "auto_exposure.h"
 #include "fx_parallel.h"
+#include "settings.h"
 
 #define GLITCH_BENCH 0          /* 1 = run main/bench.c after boot (effect timings, test shot) */
 void bench_start(void);
@@ -111,6 +112,8 @@ void app_main(void)
     ESP_ERROR_CHECK(auto_exposure_init(OV5647_EXPO_MAX(OV5647_VTS_FAST) / 2, 16, OV5647_EXPO_MAX(OV5647_VTS_FAST)));
 
     ESP_ERROR_CHECK(app_video_register_frame_operation_cb(frame_pipeline_on_camera_frame));
+    ESP_ERROR_CHECK(settings_init());
+    settings_apply();                                                 /* orientation, quality */
     ESP_ERROR_CHECK(app_video_stream_task_start(cam_fd, 1, NULL));   /* camera + pipeline on core 1 */
 
     /* Shutter */

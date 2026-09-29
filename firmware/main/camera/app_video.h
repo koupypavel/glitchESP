@@ -149,6 +149,7 @@ esp_err_t app_video_register_frame_operation_cb(app_video_frame_operation_cb_t o
 /* glitchESP: when auto release is off, the frame callback owns each dequeued buffer until
  * app_video_release_frame() hands it back to the driver (call from the video task). */
 void app_video_set_auto_release(bool enable);
+esp_err_t app_video_set_flip(bool vflip, bool hflip);   /* sensor mirror/flip, live */
 esp_err_t app_video_release_frame(uint8_t buf_index);
 
 #ifdef __cplusplus

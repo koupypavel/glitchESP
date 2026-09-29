@@ -122,7 +122,7 @@ int app_video_open(char *dev, video_fmt_t init_fmt)
     controls.count      = 1;
     controls.controls   = control;
     control[0].id       = V4L2_CID_VFLIP;
-    control[0].value    = 1;
+    control[0].value    = 0;     /* glitchESP: orientation is a user setting (settings.c) */
     if (ioctl(fd, VIDIOC_S_EXT_CTRLS, &controls) != 0) {
         ESP_LOGW(TAG, "failed to mirror the frame horizontally and skip this step");
     }
@@ -131,11 +131,12 @@ int app_video_open(char *dev, video_fmt_t init_fmt)
     controls.count      = 1;
     controls.controls   = control;
     control[0].id       = V4L2_CID_HFLIP;
-    control[0].value    = 1;
+    control[0].value    = 0;
     if (ioctl(fd, VIDIOC_S_EXT_CTRLS, &controls) != 0) {
         ESP_LOGW(TAG, "failed to mirror the frame horizontally and skip this step");
     }
 
+    app_camera_video.video_fd = fd;
     return fd;
 exit_0:
     close(fd);
@@ -423,4 +424,23 @@ esp_err_t app_video_release_frame(uint8_t buf_index)
         return ESP_FAIL;
     }
     return ESP_OK;
+}
+
+esp_err_t app_video_set_flip(bool vflip, bool hflip)
+{
+    struct v4l2_ext_controls controls;
+    struct v4l2_ext_control control[1];
+    int fd = app_camera_video.video_fd;
+    if (fd <= 0) return ESP_ERR_INVALID_STATE;
+    esp_err_t ret = ESP_OK;
+    controls.ctrl_class = V4L2_CTRL_CLASS_USER;
+    controls.count = 1;
+    controls.controls = control;
+    control[0].id = V4L2_CID_VFLIP;
+    control[0].value = vflip ? 1 : 0;
+    if (ioctl(fd, VIDIOC_S_EXT_CTRLS, &controls) != 0) ret = ESP_FAIL;
+    control[0].id = V4L2_CID_HFLIP;
+    control[0].value = hflip ? 1 : 0;
+    if (ioctl(fd, VIDIOC_S_EXT_CTRLS, &controls) != 0) ret = ESP_FAIL;
+    return ret;
 }

@@ -6,6 +6,7 @@
 #include "ui_live.h"
 #include "frame_pipeline.h"
 #include "fx.h"
+#include "settings.h"
 
 static const char *TAG = "ui_live";
 
@@ -20,6 +21,7 @@ static lv_obj_t *s_toast;
 static lv_obj_t *s_slider;
 static lv_obj_t *s_chip[12];
 static lv_timer_t *s_toast_timer;
+static lv_obj_t *s_settings;   /* modal panel, NULL when closed */
 
 /* ---- toast ---- */
 
@@ -73,6 +75,109 @@ static void reroll_event_cb(lv_event_t *e)
     toast_show(msg, 900);
 }
 
+/* ---- settings panel ---- */
+
+static void settings_switch_cb(lv_event_t *e)
+{
+    lv_obj_t *sw = lv_event_get_target(e);
+    int which = (int)(intptr_t)lv_event_get_user_data(e);
+    settings_t cfg = *settings_get();
+    bool on = lv_obj_has_state(sw, LV_STATE_CHECKED);
+    if (which == 0) cfg.flip_h = on;
+    if (which == 1) cfg.flip_v = on;
+    settings_set(&cfg);
+}
+
+static void settings_quality_cb(lv_event_t *e)
+{
+    lv_obj_t *dd = lv_event_get_target(e);
+    settings_t cfg = *settings_get();
+    cfg.quality = (uint8_t)lv_dropdown_get_selected(dd);
+    settings_set(&cfg);
+}
+
+static void settings_close_cb(lv_event_t *e)
+{
+    (void)e;
+    if (s_settings) {
+        lv_obj_delete(s_settings);
+        s_settings = NULL;
+    }
+}
+
+static lv_obj_t *add_switch_row(lv_obj_t *parent, const char *text, bool on, int id)
+{
+    lv_obj_t *row = lv_obj_create(parent);
+    lv_obj_set_size(row, LV_PCT(100), 60);
+    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(row, 0, 0);
+    lv_obj_set_style_pad_all(row, 4, 0);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *l = lv_label_create(row);
+    lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(l, lv_color_white(), 0);
+    lv_label_set_text(l, text);
+    lv_obj_align(l, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_t *sw = lv_switch_create(row);
+    lv_obj_align(sw, LV_ALIGN_RIGHT_MID, 0, 0);
+    if (on) lv_obj_add_state(sw, LV_STATE_CHECKED);
+    lv_obj_add_event_cb(sw, settings_switch_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)id);
+    return sw;
+}
+
+static void settings_open_cb(lv_event_t *e)
+{
+    (void)e;
+    if (s_settings) return;
+    const settings_t *cfg = settings_get();
+    s_settings = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(s_settings, FP_OUT_W - 60, 420);
+    lv_obj_align(s_settings, LV_ALIGN_CENTER, 0, -80);
+    lv_obj_set_style_bg_color(s_settings, lv_color_hex(0x181818), 0);
+    lv_obj_set_style_bg_opa(s_settings, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(s_settings, lv_color_hex(0xE0007A), 0);
+    lv_obj_set_style_border_width(s_settings, 2, 0);
+    lv_obj_set_style_radius(s_settings, 12, 0);
+    lv_obj_set_style_pad_all(s_settings, 16, 0);
+    lv_obj_set_flex_flow(s_settings, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(s_settings, 6, 0);
+
+    lv_obj_t *title = lv_label_create(s_settings);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(title, lv_color_white(), 0);
+    lv_label_set_text(title, "Settings");
+
+    add_switch_row(s_settings, "Mirror left/right", cfg->flip_h, 0);
+    add_switch_row(s_settings, "Flip up/down", cfg->flip_v, 1);
+
+    lv_obj_t *row = lv_obj_create(s_settings);
+    lv_obj_set_size(row, LV_PCT(100), 64);
+    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(row, 0, 0);
+    lv_obj_set_style_pad_all(row, 4, 0);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *l = lv_label_create(row);
+    lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(l, lv_color_white(), 0);
+    lv_label_set_text(l, "Preview quality");
+    lv_obj_align(l, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_t *dd = lv_dropdown_create(row);
+    lv_dropdown_set_options(dd, "Auto\nFull\nHalf");
+    lv_dropdown_set_selected(dd, cfg->quality);
+    lv_obj_set_width(dd, 200);
+    lv_obj_align(dd, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_add_event_cb(dd, settings_quality_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    lv_obj_t *close = lv_button_create(s_settings);
+    lv_obj_set_size(close, LV_PCT(100), 56);
+    lv_obj_set_style_bg_color(close, lv_color_hex(0xE0007A), 0);
+    lv_obj_t *cl = lv_label_create(close);
+    lv_obj_set_style_text_font(cl, &lv_font_montserrat_20, 0);
+    lv_label_set_text(cl, "Close");
+    lv_obj_center(cl);
+    lv_obj_add_event_cb(close, settings_close_cb, LV_EVENT_CLICKED, NULL);
+}
+
 static void create_control_bar(lv_obj_t *parent)
 {
     lv_obj_t *bar = lv_obj_create(parent);
@@ -122,6 +227,15 @@ static void create_control_bar(lv_obj_t *parent)
     lv_label_set_text(dl, LV_SYMBOL_REFRESH);
     lv_obj_center(dl);
     lv_obj_add_event_cb(dice, reroll_event_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *gear = lv_button_create(row);
+    lv_obj_set_height(gear, 50);
+    lv_obj_set_style_bg_color(gear, lv_color_hex(0x505050), 0);
+    lv_obj_t *gl = lv_label_create(gear);
+    lv_obj_set_style_text_font(gl, &lv_font_montserrat_16, 0);
+    lv_label_set_text(gl, LV_SYMBOL_SETTINGS);
+    lv_obj_center(gl);
+    lv_obj_add_event_cb(gear, settings_open_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *cap = lv_label_create(bar);
     lv_obj_set_style_text_font(cap, &lv_font_montserrat_20, 0);

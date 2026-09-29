@@ -10,6 +10,7 @@ set(srcs
     "ui/ui_live.c"
     "ui/ui_lvgl.c"
     "display/display.c"
+    "system/settings.c"
     "input/buttons.c"
     "effects/fx_registry.c"
     "effects/fx_chanshift.c"
@@ -23,7 +24,7 @@ set(srcs
     "effects/fx_kaleido.c")
 
 idf_component_register(SRCS "${srcs}"
-                       INCLUDE_DIRS "." "camera" "pipeline" "storage" "ui" "input" "effects" "display")
+                       INCLUDE_DIRS "." "camera" "pipeline" "storage" "ui" "input" "effects" "display" "system")
 
 # LVGL 9.5 emits attribute/cpp warnings with the P4 toolchain; keep them from failing the build.
 idf_build_get_property(build_components BUILD_COMPONENTS)
