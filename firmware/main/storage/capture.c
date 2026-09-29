@@ -11,6 +11,7 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "driver/jpeg_encode.h"
+#include "mbedtls/base64.h"
 #include "capture.h"
 #include "frame_pipeline.h"
 
@@ -31,6 +32,7 @@ typedef struct {
 
     SemaphoreHandle_t frame_ready;
     volatile bool busy;
+    bool serial_dump;      /* no SD: print the JPEG as base64 so it can be checked on a PC */
     uint32_t count;
     uint32_t seq;
     fp_recipe_t recipe;    /* recipe of the frame being saved */
@@ -144,6 +146,19 @@ static void capture_task(void *arg)
         } else if (!s_c.sd_ok) {
             res.error = "no SD card";
             ESP_LOGW(TAG, "encoded %lu bytes but no SD card mounted", (unsigned long)out_size);
+            if (s_c.serial_dump) {
+                /* 57 raw bytes -> 76 base64 chars per line */
+                unsigned char line[80];
+                printf("JPEG_B64_BEGIN %lu\n", (unsigned long)out_size);
+                for (uint32_t off = 0; off < out_size; off += 57) {
+                    size_t n = out_size - off < 57 ? out_size - off : 57, olen = 0;
+                    mbedtls_base64_encode(line, sizeof(line), &olen, s_c.jpg_buf + off, n);
+                    line[olen] = 0;
+                    printf("%s\n", line);
+                    if ((off / 57) % 64 == 0) vTaskDelay(1);   /* let the UART drain */
+                }
+                printf("JPEG_B64_END\n");
+            }
         } else {
             uint32_t n = s_c.count + 1;
             snprintf(res.path, sizeof(res.path), CAPTURE_DIR "/IMG_%04lu.jpg", (unsigned long)n);
@@ -227,6 +242,11 @@ esp_err_t capture_trigger(void)
         s_c.busy = false;
     }
     return ret;
+}
+
+void capture_set_serial_dump(bool enable)
+{
+    s_c.serial_dump = enable;
 }
 
 bool capture_sd_available(void)

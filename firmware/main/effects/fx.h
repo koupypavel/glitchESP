@@ -3,6 +3,11 @@
  *
  * Pure C99, no ESP-IDF dependencies: the same files compile in tools/fxlab on a PC.
  * Frames are RGB565 (uint16_t per pixel, R in bits 15..11, G in 10..5, B in 4..0).
+ *
+ * Row-parallel contract: apply() produces rows [ctx->y0, ctx->y1) of `out` and may read any
+ * row of `in`. Randomness must be derived from (seed, frame_no, row/band) — see fx_rng.h —
+ * never from a generator that runs across rows, so that two cores producing two halves give
+ * exactly the result one core would.
  */
 #pragma once
 
@@ -52,6 +57,7 @@ typedef struct {
     const fx_frame_t *prev;   /* previous *output* frame for temporal effects, may be NULL */
     void *scratch;            /* optional work memory, scratch_len bytes, may be NULL */
     size_t scratch_len;
+    uint16_t y0, y1;          /* rows to produce: [y0, y1). The chain sets these. */
 } fx_ctx_t;
 
 typedef struct fx_desc {
@@ -61,10 +67,13 @@ typedef struct fx_desc {
     const fx_param_t *params;
     bool in_place;            /* apply() tolerates in == out */
     bool temporal;            /* uses ctx->prev */
-    uint8_t cost;             /* FX_COST_LIGHT / MEDIUM / HEAVY: guides the half-resolution preview decision */
+    bool row_parallel;        /* apply() honours ctx->y0/y1 and can run split across cores */
+    uint8_t cost;             /* FX_COST_*: guides the half-resolution preview decision */
     /* Fill `params` from a single 0..1 "amount" knob (the one-knob mapping). */
     void (*from_amount)(float amount, float *params);
-    /* Render `in` -> `out`. Both frames have equal w/h. */
+    /* Optional: called once per frame before apply() (lookup tables etc.). */
+    void (*prepare)(const float *params, const fx_ctx_t *ctx);
+    /* Render rows [ctx->y0, ctx->y1) of `out` from `in`. Both frames have equal w/h. */
     void (*apply)(const fx_frame_t *in, fx_frame_t *out, const float *params, const fx_ctx_t *ctx);
 } fx_desc_t;
 
@@ -99,6 +108,14 @@ void fx_chain_set_amount(fx_chain_t *c, float amount);            /* applies fro
 void fx_chain_apply(const fx_chain_t *c, const fx_frame_t *in, fx_frame_t *out, fx_frame_t *tmp,
                     const fx_ctx_t *ctx);
 
+/*
+ * Optional parallel runner: the host installs a function that runs one row-parallel effect
+ * split across cores (it must call fx->apply for every row exactly once). NULL = sequential.
+ */
+typedef void (*fx_parallel_fn)(const fx_desc_t *fx, const fx_frame_t *in, fx_frame_t *out,
+                               const float *params, const fx_ctx_t *ctx);
+void fx_set_parallel_runner(fx_parallel_fn fn);
+
 /* ---- helpers shared by effects ---- */
 static inline uint16_t fx_rgb565(unsigned r5, unsigned g6, unsigned b5)
 {
@@ -115,6 +132,7 @@ static inline unsigned fx_luma(uint16_t p)
 }
 
 void fx_frame_copy(const fx_frame_t *in, fx_frame_t *out);
+void fx_frame_copy_rows(const fx_frame_t *in, fx_frame_t *out, int y0, int y1);
 
 #ifdef __cplusplus
 }

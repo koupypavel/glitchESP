@@ -123,9 +123,36 @@ Widening the window with the amount knob makes runs longer, hence longer streaks
 the device this reads and writes columns, which is cache-unfriendly; it is the first candidate
 for the half-resolution preview path.
 
+### Psychedelic set
+
+These follow the named open-eye phenomena in the psychedelic-replication literature
+(Wikipedia "Psychedelic replication", PsychonautWiki "Visual effects").
+
+**Tracers** (`fx_tracers.c`, phenomenon: tracers / after images). Temporal: the frame is
+combined with a decayed copy of the previous *output*. "Echo" mode keeps the brighter of the
+live pixel and the faded old one, so the live frame stays crisp and older copies fade behind
+it; "blend" mode cross-fades for smooth ghosting. "Rainbow" fades the three channels at
+slowly cycling rates so trails drift through hues. Needs `ctx->prev`, which the pipeline
+provides (ping-pong buffers at half resolution, a clean copy at full).
+
+**Hue drift** (`fx_hueshift.c`, phenomena: colour shifting, colour enhancement). A hue
+rotation matrix combined with saturation and contrast, folded into a 64K-entry RGB565 lookup
+table in internal RAM that is rebuilt only when the angle has drifted a few degrees. Per
+pixel it is a single table load, so it is one of the cheapest effects.
+
+**Kaleido** (`fx_kaleido.c`, phenomena: symmetrical texture repetition, recursion). Mirrors
+one side of the frame onto the other (2-way) and optionally the top onto the bottom (4-way);
+a slow sweep moves the axis so the symmetry breathes.
+
+Not yet built, with the intended approach: drifting/breathing (slow zoom oscillation via the
+PPA scaler), visual haze/glow (blend with a blurred low-resolution copy), environmental
+orbism (radial block displacement), scenery slicing (already close to scanline + blocks).
+
 ## 7. Adding an effect (checklist)
 
 1. Copy `fx_bitcrush.c` to `fx_yourname.c`. Fill the parameter table, `from_amount()`, `apply()`.
+   Honour `ctx->y0`/`ctx->y1` and seed randomness per band/row with `fx_rng_init_at()`; then
+   set `row_parallel = true` so both cores share the work. Per-frame tables go in `prepare()`.
 2. Add `extern const fx_desc_t fx_yourname;` and the pointer to the array in `fx_registry.c`.
 3. Add the file to `firmware/main/CMakeLists.txt`.
 4. Build the PC harness and look at it:

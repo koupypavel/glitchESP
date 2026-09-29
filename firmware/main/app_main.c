@@ -21,8 +21,9 @@
 #include "buttons.h"
 #include "ov5647_ctl.h"
 #include "auto_exposure.h"
+#include "fx_parallel.h"
 
-#define GLITCH_BENCH 1          /* temporary: run main/bench.c after boot */
+#define GLITCH_BENCH 0          /* 1 = run main/bench.c after boot (effect timings, test shot) */
 void bench_start(void);
 void bench_microbench_on_core1(void);
 
@@ -73,6 +74,7 @@ void app_main(void)
 
     /* Pipeline buffers + PPA, capture engine */
     ESP_ERROR_CHECK(frame_pipeline_init());
+    ESP_ERROR_CHECK(fx_parallel_init());
     ESP_ERROR_CHECK(capture_init(sd_ok, on_capture_done, NULL));
 
     /* UI */

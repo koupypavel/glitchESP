@@ -79,6 +79,7 @@ const fx_desc_t fx_blocks = {
     .params = s_params,
     .in_place = false,
     .temporal = false,
+    .row_parallel = false,
     .cost = FX_COST_MEDIUM,
     .from_amount = from_amount,
     .apply = apply,

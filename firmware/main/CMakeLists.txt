@@ -4,6 +4,7 @@ set(srcs
     "camera/app_video.c"
     "camera/ov5647_ctl.c"
     "pipeline/auto_exposure.c"
+    "pipeline/fx_parallel.c"
     "pipeline/frame_pipeline.c"
     "storage/capture.c"
     "ui/ui_live.c"
@@ -16,7 +17,10 @@ set(srcs
     "effects/fx_bitcrush.c"
     "effects/fx_blocks.c"
     "effects/fx_wave.c"
-    "effects/fx_pixelsort.c")
+    "effects/fx_pixelsort.c"
+    "effects/fx_tracers.c"
+    "effects/fx_hueshift.c"
+    "effects/fx_kaleido.c")
 
 idf_component_register(SRCS "${srcs}"
                        INCLUDE_DIRS "." "camera" "pipeline" "storage" "ui" "input" "effects" "display")

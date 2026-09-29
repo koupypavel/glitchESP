@@ -9,6 +9,9 @@ extern const fx_desc_t fx_bitcrush;
 extern const fx_desc_t fx_blocks;
 extern const fx_desc_t fx_wave;
 extern const fx_desc_t fx_pixelsort;
+extern const fx_desc_t fx_tracers;
+extern const fx_desc_t fx_hueshift;
+extern const fx_desc_t fx_kaleido;
 
 static const fx_desc_t *const s_registry[] = {
     &fx_chanshift,
@@ -17,7 +20,12 @@ static const fx_desc_t *const s_registry[] = {
     &fx_blocks,
     &fx_wave,
     &fx_pixelsort,
+    &fx_tracers,
+    &fx_hueshift,
+    &fx_kaleido,
 };
+
+static fx_parallel_fn s_parallel;
 
 int fx_registry_count(void)
 {
@@ -54,17 +62,23 @@ int fx_param_index(const fx_desc_t *fx, const char *param_id)
     return -1;
 }
 
-void FX_HOT fx_frame_copy(const fx_frame_t *in, fx_frame_t *out)
+void FX_HOT fx_frame_copy_rows(const fx_frame_t *in, fx_frame_t *out, int y0, int y1)
 {
     if (in->px == out->px) return;
     size_t row = (size_t)in->w * sizeof(uint16_t);
-    if (in->stride_px == in->w && out->stride_px == out->w) {
-        memcpy(out->px, in->px, row * in->h);
-        return;
-    }
-    for (unsigned y = 0; y < in->h; y++) {
+    for (int y = y0; y < y1; y++) {
         memcpy(out->px + (size_t)y * out->stride_px, in->px + (size_t)y * in->stride_px, row);
     }
+}
+
+void FX_HOT fx_frame_copy(const fx_frame_t *in, fx_frame_t *out)
+{
+    fx_frame_copy_rows(in, out, 0, in->h);
+}
+
+void fx_set_parallel_runner(fx_parallel_fn fn)
+{
+    s_parallel = fn;
 }
 
 /* ---- chain ---- */
@@ -95,8 +109,22 @@ void fx_chain_set_amount(fx_chain_t *c, float amount)
     }
 }
 
+static void run_effect(const fx_desc_t *fx, const fx_frame_t *in, fx_frame_t *out,
+                       const float *params, const fx_ctx_t *ctx_in)
+{
+    fx_ctx_t ctx = *ctx_in;
+    ctx.y0 = 0;
+    ctx.y1 = in->h;
+    if (fx->prepare) fx->prepare(params, &ctx);
+    if (fx->row_parallel && s_parallel) {
+        s_parallel(fx, in, out, params, &ctx);
+    } else {
+        fx->apply(in, out, params, &ctx);
+    }
+}
+
 void FX_HOT fx_chain_apply(const fx_chain_t *c, const fx_frame_t *in, fx_frame_t *out, fx_frame_t *tmp,
-                    const fx_ctx_t *ctx)
+                           const fx_ctx_t *ctx)
 {
     int enabled = 0;
     for (int i = 0; i < c->count; i++) {
@@ -120,7 +148,7 @@ void FX_HOT fx_chain_apply(const fx_chain_t *c, const fx_frame_t *in, fx_frame_t
         } else {
             dst = (src == tmp) ? out : tmp;   /* never write into the buffer we read from */
         }
-        s->fx->apply(src, dst, s->params, ctx);
+        run_effect(s->fx, src, dst, s->params, ctx);
         src = dst;
     }
 }

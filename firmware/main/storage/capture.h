@@ -33,6 +33,7 @@ esp_err_t capture_init(bool sd_mounted, capture_done_cb_t done_cb, void *user);
 esp_err_t capture_trigger(void);
 
 bool capture_sd_available(void);
+void capture_set_serial_dump(bool enable);   /* no SD card: dump JPEG as base64 over serial */
 uint32_t capture_get_count(void);
 
 #ifdef __cplusplus

@@ -1,7 +1,11 @@
 /*
  * Scanline displacement / smear: the image is cut into horizontal bands. Each band is either
- * shifted sideways by a random amount (wrapping), repeated from the band above ("hold",
- * which smears the picture vertically), or left intact.
+ * shifted sideways by a random amount (wrapping), repeated from the row above the band that
+ * started a "hold" (which smears the picture vertically), or left intact.
+ *
+ * Row-parallel: every band's decision is a pure function of (seed, frame, band index). A hold
+ * started in band s covers bands s .. s+hold_len-1, so a band looks back at most hold_len
+ * decisions instead of carrying state from row to row.
  */
 #include <math.h>
 #include <string.h>
@@ -27,6 +31,22 @@ static void from_amount(float a, float *p)
     p[P_HOLD_LEN] = 2.0f + a * 30.0f;
 }
 
+typedef struct { int hold; int shift; } band_decision_t;
+
+static band_decision_t decide(const fx_ctx_t *ctx, int band_idx, float hold_prob, float shift_prob, int max_off)
+{
+    fx_rng_t rng;
+    fx_rng_init_at(&rng, ctx, 0x5CA1, (uint32_t)band_idx);
+    band_decision_t d = { 0, 0 };
+    float r = fx_rng_f(&rng);
+    if (r < hold_prob) {
+        d.hold = 1;
+    } else if (r < hold_prob + shift_prob) {
+        d.shift = fx_rng_range(&rng, -max_off, max_off);
+    }
+    return d;
+}
+
 static void FX_HOT copy_row_shifted(const uint16_t *src, uint16_t *dst, int w, int shift)
 {
     shift %= w; if (shift < 0) shift += w;
@@ -41,9 +61,6 @@ static void FX_HOT copy_row_shifted(const uint16_t *src, uint16_t *dst, int w, i
 
 static void FX_HOT apply(const fx_frame_t *in, fx_frame_t *out, const float *p, const fx_ctx_t *ctx)
 {
-    fx_rng_t rng;
-    fx_rng_init(&rng, ctx, 0x5CA1);
-
     int band = fx_clampi((int)p[P_BAND], 1, 4096);
     int max_off = fx_clampi((int)p[P_MAX_OFF], 0, (int)in->w - 1);
     float shift_prob = fx_clampf(p[P_SHIFT_PROB], 0, 1);
@@ -51,32 +68,34 @@ static void FX_HOT apply(const fx_frame_t *in, fx_frame_t *out, const float *p, 
     int hold_len = fx_clampi((int)p[P_HOLD_LEN], 1, 4096);
     int w = in->w;
 
-    int hold_src_y = -1;    /* row being repeated while smearing */
-    int hold_left = 0;
-    int shift = 0;
+    int cur_band = -1;
+    int src_y = 0, shift = 0;           /* per-band: which source row and how much shift */
+    int hold_active = 0;
 
-    for (int y = 0; y < (int)in->h; y++) {
-        if ((y % band) == 0 && hold_left <= 0) {
-            float r = fx_rng_f(&rng);
-            if (r < hold_prob) {
-                hold_src_y = y > 0 ? y - 1 : 0;
-                hold_left = hold_len * band;
-            } else if (r < hold_prob + shift_prob) {
-                shift = fx_rng_range(&rng, -max_off, max_off);
-            } else {
-                shift = 0;
+    for (int y = ctx->y0; y < ctx->y1; y++) {
+        int b = y / band;
+        if (b != cur_band) {
+            cur_band = b;
+            /* is a hold covering this band? look back up to hold_len bands */
+            hold_active = 0;
+            int look = hold_len < b + 1 ? hold_len : b + 1;
+            for (int k = 0; k < look; k++) {
+                band_decision_t d = decide(ctx, b - k, hold_prob, shift_prob, max_off);
+                if (d.hold) {
+                    hold_active = 1;
+                    src_y = (b - k) * band - 1;
+                    if (src_y < 0) src_y = 0;
+                    shift = 0;
+                    break;
+                }
+            }
+            if (!hold_active) {
+                shift = decide(ctx, b, hold_prob, shift_prob, max_off).shift;
             }
         }
-        const uint16_t *src;
+        const uint16_t *src = in->px + (size_t)(hold_active ? src_y : y) * in->stride_px;
         uint16_t *dst = out->px + (size_t)y * out->stride_px;
-        if (hold_left > 0) {
-            src = in->px + (size_t)hold_src_y * in->stride_px;
-            hold_left--;
-            copy_row_shifted(src, dst, w, shift);
-        } else {
-            src = in->px + (size_t)y * in->stride_px;
-            copy_row_shifted(src, dst, w, shift);
-        }
+        copy_row_shifted(src, dst, w, shift);
     }
 }
 
@@ -87,6 +106,7 @@ const fx_desc_t fx_scanline = {
     .params = s_params,
     .in_place = false,
     .temporal = false,
+    .row_parallel = true,
     .cost = FX_COST_LIGHT,
     .from_amount = from_amount,
     .apply = apply,

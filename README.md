@@ -13,6 +13,7 @@ button, JPEG capture with a reproducible "recipe" sidecar.
 | `m0/` | Hardware bring-up notes and helper scripts |
 | `doc/` | Schematic, datasheet, pointers to Waveshare material |
 
-Status: hardware verified, camera preview + six effects running on the device, JPEG capture
-implemented (SD card test pending), performance work in progress. Built with ESP-IDF v5.5.5 for
+Status: hardware verified, camera preview at 19 fps with nine effects running on both cores
+(channel shift, scanline smear, bit crush, blocks, wave, pixel sort, tracers, hue drift, kaleido),
+JPEG capture implemented (SD card test pending). Built with ESP-IDF v5.5.5 for
 ESP32-P4 silicon rev v1.3.

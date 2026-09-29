@@ -1,4 +1,10 @@
-/* Small deterministic PRNG for effects (xorshift32 + hash seeding). Header-only. */
+/*
+ * Small deterministic PRNG for effects (xorshift32 + hash seeding). Header-only.
+ *
+ * Effects seed a fresh generator per band or per row with fx_rng_init_at(), so every row's
+ * randomness depends only on (seed, frame_no, salt, row/band index). That keeps a frame
+ * reproducible from its sidecar and identical whether it was rendered on one core or two.
+ */
 #pragma once
 
 #include <stdint.h>
@@ -14,10 +20,17 @@ static inline uint32_t fx_hash32(uint32_t x)
     return x;
 }
 
-/* Seed from the frame context so every frame differs but the same (seed, frame_no) repeats. */
+/* Seed for the whole frame (use only for things that are not row dependent). */
 static inline void fx_rng_init(fx_rng_t *r, const fx_ctx_t *ctx, uint32_t salt)
 {
     uint32_t s = fx_hash32(ctx->seed ^ (ctx->frame_no * 0x9e3779b9U) ^ salt);
+    r->s = s ? s : 0x1234567U;
+}
+
+/* Seed for one row / band / tile: independent of what happened on other rows. */
+static inline void fx_rng_init_at(fx_rng_t *r, const fx_ctx_t *ctx, uint32_t salt, uint32_t index)
+{
+    uint32_t s = fx_hash32(ctx->seed ^ (ctx->frame_no * 0x9e3779b9U) ^ salt ^ (index * 0x85ebca6bU));
     r->s = s ? s : 0x1234567U;
 }
 

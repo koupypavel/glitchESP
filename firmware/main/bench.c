@@ -11,6 +11,7 @@
 #include "auto_exposure.h"
 #include "ov5647_ctl.h"
 #include "fx.h"
+#include "capture.h"
 
 static const char *TAG = "bench";
 
@@ -107,10 +108,10 @@ static void bench_task(void *arg)
         frame_pipeline_set_amount(0.6f);
         frame_pipeline_set_quality(FP_QUALITY_FULL);
         ESP_LOGI(TAG, "=== effect: %s (full) ===", fx_registry_get(i)->id);
-        vTaskDelay(pdMS_TO_TICKS(4500));
+        vTaskDelay(pdMS_TO_TICKS(2500));
         frame_pipeline_set_quality(FP_QUALITY_HALF);
         ESP_LOGI(TAG, "=== effect: %s (half) ===", fx_registry_get(i)->id);
-        vTaskDelay(pdMS_TO_TICKS(4500));
+        vTaskDelay(pdMS_TO_TICKS(2500));
     }
     fx_chain_clear(&chain);
     fx_chain_add(&chain, fx_registry_find("chanshift"));
@@ -119,11 +120,24 @@ static void bench_task(void *arg)
     frame_pipeline_set_chain(&chain);
     frame_pipeline_set_quality(FP_QUALITY_FULL);
     ESP_LOGI(TAG, "=== chain: chanshift scanline bitcrush (full) ===");
-    vTaskDelay(pdMS_TO_TICKS(4500));
+    vTaskDelay(pdMS_TO_TICKS(2500));
     frame_pipeline_set_quality(FP_QUALITY_HALF);
     ESP_LOGI(TAG, "=== chain (half) ===");
-    vTaskDelay(pdMS_TO_TICKS(4500));
+    vTaskDelay(pdMS_TO_TICKS(2500));
     frame_pipeline_set_quality(FP_QUALITY_AUTO);
+
+    /* capture test: one shot with channel shift active; without an SD card the JPEG is
+     * printed as base64 so it can be decoded on the PC */
+    fx_chain_clear(&chain);
+    fx_chain_add(&chain, fx_registry_find("chanshift"));
+    frame_pipeline_set_chain(&chain);
+    frame_pipeline_set_amount(0.5f);
+    vTaskDelay(pdMS_TO_TICKS(1500));
+    capture_set_serial_dump(true);
+    ESP_LOGI(TAG, "=== capture test ===");
+    capture_trigger();
+    vTaskDelay(pdMS_TO_TICKS(30000));
+    capture_set_serial_dump(false);
 
     fx_chain_clear(&chain);
     frame_pipeline_set_chain(&chain);

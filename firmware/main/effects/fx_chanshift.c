@@ -2,8 +2,8 @@
  * Channel shift / RGB split: each color plane is sampled from an offset position, with an
  * optional per-band random jitter so the split "tears" along horizontal bands.
  *
- * Performance note: no modulo per pixel. For each row and channel the source row pointer
- * and a wrapped start index are computed once; the inner loop just increments and wraps.
+ * Row-parallel: the jitter of a band depends only on (seed, frame, band index).
+ * No modulo per pixel: per row and channel the wrapped start index is computed once.
  */
 #include <math.h>
 #include "fx.h"
@@ -40,11 +40,21 @@ static inline int wrap_start(int v, int w)
     return v < 0 ? v + w : v;
 }
 
-static void FX_HOT apply(const fx_frame_t *in, fx_frame_t *out, const float *p, const fx_ctx_t *ctx)
+static void band_jitter(const fx_ctx_t *ctx, int band_idx, int jmax, int *jr, int *jg, int *jb)
 {
     fx_rng_t rng;
-    fx_rng_init(&rng, ctx, 0x0C5A);
+    fx_rng_init_at(&rng, ctx, 0x0C5A, (uint32_t)band_idx);
+    if (jmax > 0 && fx_rng_f(&rng) < 0.6f) {
+        *jr = fx_rng_range(&rng, -jmax, jmax);
+        *jg = fx_rng_range(&rng, -jmax / 2, jmax / 2);
+        *jb = fx_rng_range(&rng, -jmax, jmax);
+    } else {
+        *jr = *jg = *jb = 0;
+    }
+}
 
+static void FX_HOT apply(const fx_frame_t *in, fx_frame_t *out, const float *p, const fx_ctx_t *ctx)
+{
     int dxr = (int)lroundf(p[P_DX_R]), dyr = (int)lroundf(p[P_DY_R]);
     int dxg = (int)lroundf(p[P_DX_G]), dyg = (int)lroundf(p[P_DY_G]);
     int dxb = (int)lroundf(p[P_DX_B]), dyb = (int)lroundf(p[P_DY_B]);
@@ -53,16 +63,12 @@ static void FX_HOT apply(const fx_frame_t *in, fx_frame_t *out, const float *p, 
     int jmax = (int)(jitter * 60.0f);
     int W = in->w, H = in->h;
 
-    int jr = 0, jg = 0, jb = 0;
-    for (int y = 0; y < H; y++) {
-        if (jmax > 0 && (y % band) == 0) {
-            if (fx_rng_f(&rng) < 0.6f) {
-                jr = fx_rng_range(&rng, -jmax, jmax);
-                jg = fx_rng_range(&rng, -jmax / 2, jmax / 2);
-                jb = fx_rng_range(&rng, -jmax, jmax);
-            } else {
-                jr = jg = jb = 0;
-            }
+    int cur_band = -1, jr = 0, jg = 0, jb = 0;
+    for (int y = ctx->y0; y < ctx->y1; y++) {
+        int b = y / band;
+        if (b != cur_band) {
+            cur_band = b;
+            band_jitter(ctx, b, jmax, &jr, &jg, &jb);
         }
         const uint16_t *sr = in->px + (size_t)fx_clampi(y - dyr, 0, H - 1) * in->stride_px;
         const uint16_t *sg = in->px + (size_t)fx_clampi(y - dyg, 0, H - 1) * in->stride_px;
@@ -87,6 +93,7 @@ const fx_desc_t fx_chanshift = {
     .params = s_params,
     .in_place = false,
     .temporal = false,
+    .row_parallel = true,
     .cost = FX_COST_HEAVY,
     .from_amount = from_amount,
     .apply = apply,

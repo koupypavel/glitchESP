@@ -15,6 +15,7 @@
 #include "auto_exposure.h"
 #include "display.h"
 #include "ui_lvgl.h"
+#include "fx_parallel.h"
 
 static const char *TAG = "pipeline";
 
@@ -27,7 +28,10 @@ static const char *TAG = "pipeline";
 typedef struct {
     size_t cache_line;
     uint8_t *tmp_buf;                 /* ping-pong buffer for multi-effect chains */
-    uint16_t *half_in, *half_tmp, *half_out;   /* 360x640 working frames for the half-res path */
+    uint16_t *half_in, *half_tmp, *half_out[2];   /* 360x640 working frames; half_out ping-pongs */
+    int half_cur;                                  /* which half_out holds the latest output */
+    uint16_t *prev_full;                           /* previous full-res clean output (temporal fx) */
+    bool prev_full_valid, prev_half_valid;
     volatile fp_quality_t quality;
     volatile bool last_half;
     uint32_t seq;
@@ -65,8 +69,11 @@ esp_err_t frame_pipeline_init(void)
     ESP_RETURN_ON_FALSE(s_p.tmp_buf, ESP_ERR_NO_MEM, TAG, "tmp buffer");
     s_p.half_in  = heap_caps_aligned_calloc(s_p.cache_line, 1, HALF_BYTES, MALLOC_CAP_SPIRAM);
     s_p.half_tmp = heap_caps_aligned_calloc(s_p.cache_line, 1, HALF_BYTES, MALLOC_CAP_SPIRAM);
-    s_p.half_out = heap_caps_aligned_calloc(s_p.cache_line, 1, HALF_BYTES, MALLOC_CAP_SPIRAM);
-    ESP_RETURN_ON_FALSE(s_p.half_in && s_p.half_tmp && s_p.half_out, ESP_ERR_NO_MEM, TAG, "half buffers");
+    s_p.half_out[0] = heap_caps_aligned_calloc(s_p.cache_line, 1, HALF_BYTES, MALLOC_CAP_SPIRAM);
+    s_p.half_out[1] = heap_caps_aligned_calloc(s_p.cache_line, 1, HALF_BYTES, MALLOC_CAP_SPIRAM);
+    s_p.prev_full = heap_caps_aligned_calloc(s_p.cache_line, 1, len, MALLOC_CAP_SPIRAM);
+    ESP_RETURN_ON_FALSE(s_p.half_in && s_p.half_tmp && s_p.half_out[0] && s_p.half_out[1] && s_p.prev_full,
+                        ESP_ERR_NO_MEM, TAG, "half/prev buffers");
 
     fx_chain_clear(&s_p.recipe.chain);
     s_p.recipe.seed = esp_random();
@@ -85,17 +92,28 @@ static bool chain_active(const fx_chain_t *c)
     return false;
 }
 
-static void IRAM_ATTR copy_window(const uint16_t *src, uint32_t src_stride, uint16_t *dst)
+typedef struct { const uint16_t *src; uint32_t src_stride; uint16_t *dst; } rows_arg_t;
+
+static void IRAM_ATTR copy_rows(void *a, int y0, int y1)
 {
-    for (int y = 0; y < FP_OUT_H; y++) {
-        memcpy(dst + (size_t)y * FP_OUT_W, src + (size_t)y * src_stride, FP_OUT_W * 2);
+    rows_arg_t *r = a;
+    for (int y = y0; y < y1; y++) {
+        memcpy(r->dst + (size_t)y * FP_OUT_W, r->src + (size_t)y * r->src_stride, FP_OUT_W * 2);
     }
 }
 
-/* 2x2 point-sampled downscale of the camera window: reads every other row/pixel. */
-static void IRAM_ATTR downscale_2x(const uint16_t *src, uint32_t src_stride, uint16_t *dst)
+static void copy_window(const uint16_t *src, uint32_t src_stride, uint16_t *dst)
 {
-    for (int y = 0; y < HALF_H; y++) {
+    rows_arg_t a = { src, src_stride, dst };
+    fx_parallel_rows(copy_rows, &a, 0, FP_OUT_H, dst, FP_OUT_W);
+}
+
+/* 2x2 point-sampled downscale of the camera window: reads every other row/pixel. */
+static void IRAM_ATTR downscale_rows(void *a, int y0, int y1)
+{
+    rows_arg_t *r = a;
+    const uint16_t *src = r->src; uint32_t src_stride = r->src_stride; uint16_t *dst = r->dst;
+    for (int y = y0; y < y1; y++) {
         const uint32_t *s32 = (const uint32_t *)(src + (size_t)(2 * y) * src_stride);
         uint32_t *d32 = (uint32_t *)(dst + (size_t)y * HALF_W);
         for (int x = 0; x < HALF_W; x += 2) {
@@ -105,10 +123,18 @@ static void IRAM_ATTR downscale_2x(const uint16_t *src, uint32_t src_stride, uin
     }
 }
 
-/* 2x pixel-doubling upscale into a 720x1280 frame buffer, 32-bit writes. */
-static void IRAM_ATTR upscale_2x(const uint16_t *src, uint16_t *dst)
+static void downscale_2x(const uint16_t *src, uint32_t src_stride, uint16_t *dst)
 {
-    for (int y = 0; y < HALF_H; y++) {
+    rows_arg_t a = { src, src_stride, dst };
+    fx_parallel_rows(downscale_rows, &a, 0, HALF_H, dst, HALF_W);
+}
+
+/* 2x pixel-doubling upscale into a 720x1280 frame buffer, 32-bit writes. */
+static void IRAM_ATTR upscale_rows(void *a, int y0, int y1)
+{
+    rows_arg_t *r = a;
+    const uint16_t *src = r->src; uint16_t *dst = r->dst;
+    for (int y = y0; y < y1; y++) {
         const uint16_t *s = src + (size_t)y * HALF_W;
         uint32_t *d0 = (uint32_t *)(dst + (size_t)(2 * y) * FP_OUT_W);
         for (int x = 0; x < HALF_W; x++) {
@@ -119,13 +145,34 @@ static void IRAM_ATTR upscale_2x(const uint16_t *src, uint16_t *dst)
     }
 }
 
+static void upscale_2x(const uint16_t *src, uint16_t *dst)
+{
+    rows_arg_t a = { src, HALF_W, dst };
+    /* split in source rows; each produces two output rows (out stride for cache ops: 2 rows) */
+    fx_parallel_rows(upscale_rows, &a, 0, HALF_H, dst, FP_OUT_W * 2);
+}
+
+static bool chain_is_temporal(const fx_chain_t *c)
+{
+    for (int i = 0; i < c->count; i++) {
+        if (c->slots[i].enabled && c->slots[i].fx && c->slots[i].fx->temporal) return true;
+    }
+    return false;
+}
+
 static bool chain_prefers_half(const fx_chain_t *c)
 {
+    /* With two cores a single row-parallel effect stays under ~60 ms at full resolution, so
+     * half resolution (35 ms of scaling overhead) only pays for chains and for the effects
+     * that cannot be split across cores. */
     int cost = 0;
     for (int i = 0; i < c->count; i++) {
-        if (c->slots[i].enabled && c->slots[i].fx) cost += c->slots[i].fx->cost;
+        const fx_desc_t *fx = c->slots[i].fx;
+        if (!c->slots[i].enabled || !fx) continue;
+        cost += fx->row_parallel ? fx->cost : fx->cost * 2;
+        if (fx->temporal) cost += 2;   /* at half res the previous frame is free (ping-pong) */
     }
-    return cost >= FX_COST_HEAVY;     /* one heavy effect, or two+ lighter ones */
+    return cost >= 5;
 }
 
 void frame_pipeline_on_camera_frame(uint8_t *camera_buf, uint8_t cam_idx,
@@ -164,19 +211,36 @@ void frame_pipeline_on_camera_frame(uint8_t *camera_buf, uint8_t cam_idx,
     } else {
         fp_quality_t q = s_p.quality;
         bool half = (q == FP_QUALITY_HALF) || (q == FP_QUALITY_AUTO && chain_prefers_half(&recipe.chain));
+        bool temporal = chain_is_temporal(&recipe.chain);
         fx_ctx_t ctx = { .seed = recipe.seed, .frame_no = recipe.frame_no, .prev = NULL };
         if (half) {
             downscale_2x(cam_px, FP_CAM_W, s_p.half_in);
+            int cur = s_p.half_cur ^ 1;                          /* write the other buffer */
+            fx_frame_t prev = { s_p.half_out[s_p.half_cur], HALF_W, HALF_H, HALF_W };
+            if (temporal && s_p.prev_half_valid) ctx.prev = &prev;
             fx_frame_t in  = { s_p.half_in,  HALF_W, HALF_H, HALF_W };
-            fx_frame_t dst = { s_p.half_out, HALF_W, HALF_H, HALF_W };
+            fx_frame_t dst = { s_p.half_out[cur], HALF_W, HALF_H, HALF_W };
             fx_frame_t tmp = { s_p.half_tmp, HALF_W, HALF_H, HALF_W };
             fx_chain_apply(&recipe.chain, &in, &dst, &tmp, &ctx);
-            upscale_2x(s_p.half_out, fb);
+            s_p.half_cur = cur;
+            s_p.prev_half_valid = true;
+            s_p.prev_full_valid = false;
+            upscale_2x(s_p.half_out[cur], fb);
         } else {
+            fx_frame_t prev = { s_p.prev_full, FP_OUT_W, FP_OUT_H, FP_OUT_W };
+            if (temporal && s_p.prev_full_valid) ctx.prev = &prev;
             fx_frame_t in  = { (uint16_t *)cam_px, FP_OUT_W, FP_OUT_H, FP_CAM_W };
             fx_frame_t dst = { fb, FP_OUT_W, FP_OUT_H, FP_OUT_W };
             fx_frame_t tmp = { (uint16_t *)s_p.tmp_buf, FP_OUT_W, FP_OUT_H, FP_OUT_W };
             fx_chain_apply(&recipe.chain, &in, &dst, &tmp, &ctx);
+            if (temporal) {
+                /* keep a clean copy (before the UI is stamped on) for the next frame */
+                copy_window(fb, FP_OUT_W, s_p.prev_full);
+                s_p.prev_full_valid = true;
+            } else {
+                s_p.prev_full_valid = false;
+            }
+            s_p.prev_half_valid = false;
         }
         s_p.last_half = half;
         s_p.fx_us = (uint32_t)(esp_timer_get_time() - t0);
@@ -188,7 +252,7 @@ void frame_pipeline_on_camera_frame(uint8_t *camera_buf, uint8_t cam_idx,
     /* Snapshot for capture: the clean frame before the UI is stamped on. */
     if (s_p.capture_pending && s_p.capture_dst) {
         memcpy(s_p.capture_dst, fb, FP_OUT_BYTES);
-        esp_cache_msync(s_p.capture_dst, ALIGN_UP(FP_OUT_BYTES, s_p.cache_line), ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+        esp_cache_msync(s_p.capture_dst, FP_OUT_BYTES, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);   /* encoder buffer is not line-aligned */
         fp_snapshot_t snap = { .buf = s_p.capture_dst, .len = s_p.capture_dst_len, .seq = seq, .recipe = recipe };
         s_p.capture_pending = false;
         if (s_p.capture_cb) s_p.capture_cb(&snap, s_p.capture_user);

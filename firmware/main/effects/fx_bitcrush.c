@@ -2,10 +2,12 @@
  * Bit-crush / posterize with optional ordered (Bayer 4x4) dither.
  * RGB565 has 5/6/5 bits; "bits" is how many of them survive per channel.
  *
- * Performance note: integer division is ~35 cycles on the ESP32-P4, so the per-channel
- * quantization is precomputed into lookup tables (one per dither threshold) once per frame.
+ * Performance: integer division is ~35 cycles on the ESP32-P4, so the per-channel quantization
+ * is precomputed into lookup tables once per frame (prepare), and the row loop processes two
+ * pixels per 32-bit word. Row-parallel: rows are independent.
  */
 #include <math.h>
+#include <stdint.h>
 #include "fx.h"
 #include "fx_rng.h"
 
@@ -54,14 +56,13 @@ static inline unsigned crush(unsigned v, unsigned nbits, unsigned keep, unsigned
 /* lut[t][v] for the 16 dither thresholds: 5-bit channels need 32 entries, green 64 */
 static uint8_t s_lut_r[16][32], s_lut_g[16][64], s_lut_b[16][32];
 
-static void FX_HOT apply(const fx_frame_t *in, fx_frame_t *out, const float *p, const fx_ctx_t *ctx)
+static void prepare(const float *p, const fx_ctx_t *ctx)
 {
     (void)ctx;
     unsigned br = (unsigned)fx_clampi((int)lroundf(p[P_BITS_R]), 1, 5);
     unsigned bg = (unsigned)fx_clampi((int)lroundf(p[P_BITS_G]), 1, 6);
     unsigned bb = (unsigned)fx_clampi((int)lroundf(p[P_BITS_B]), 1, 5);
     int dither = p[P_DITHER] >= 0.5f;
-
     for (unsigned t = 0; t < 16; t++) {
         for (unsigned v = 0; v < 32; v++) {
             s_lut_r[t][v] = (uint8_t)crush(v, 5, br, t, dither);
@@ -71,18 +72,20 @@ static void FX_HOT apply(const fx_frame_t *in, fx_frame_t *out, const float *p, 
             s_lut_g[t][v] = (uint8_t)crush(v, 6, bg, t, dither);
         }
     }
+}
 
-    for (int y = 0; y < (int)in->h; y++) {
+static void FX_HOT apply(const fx_frame_t *in, fx_frame_t *out, const float *p, const fx_ctx_t *ctx)
+{
+    (void)p;
+    for (int y = ctx->y0; y < ctx->y1; y++) {
         const uint16_t *src = in->px + (size_t)y * in->stride_px;
         uint16_t *dst = out->px + (size_t)y * out->stride_px;
         const uint8_t *brow = s_bayer[y & 3];
-        /* per-column-phase tables: x&3 = 0,1,2,3 */
         const uint8_t *r0 = s_lut_r[brow[0]], *r1 = s_lut_r[brow[1]], *r2 = s_lut_r[brow[2]], *r3 = s_lut_r[brow[3]];
         const uint8_t *g0 = s_lut_g[brow[0]], *g1 = s_lut_g[brow[1]], *g2 = s_lut_g[brow[2]], *g3 = s_lut_g[brow[3]];
         const uint8_t *b0 = s_lut_b[brow[0]], *b1 = s_lut_b[brow[1]], *b2 = s_lut_b[brow[2]], *b3 = s_lut_b[brow[3]];
         int w = in->w, x = 0;
         if ((((uintptr_t)src | (uintptr_t)dst) & 3) == 0) {
-            /* two pixels per 32-bit word: halves the PSRAM transactions */
             const uint32_t *s32 = (const uint32_t *)src;
             uint32_t *d32 = (uint32_t *)dst;
             for (; x + 4 <= w; x += 4) {
@@ -111,7 +114,9 @@ const fx_desc_t fx_bitcrush = {
     .params = s_params,
     .in_place = true,
     .temporal = false,
+    .row_parallel = true,
     .cost = FX_COST_HEAVY,
     .from_amount = from_amount,
+    .prepare = prepare,
     .apply = apply,
 };

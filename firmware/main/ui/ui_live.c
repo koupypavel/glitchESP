@@ -9,7 +9,7 @@
 
 static const char *TAG = "ui_live";
 
-#define BAR_H   170     /* bottom control bar height */
+#define BAR_H   215     /* bottom control bar height (two rows of chips + slider) */
 
 /* colours that map exactly onto the UI layer keys (see ui_lvgl.h) */
 #define COLOR_KEY_CLEAR   lv_color_hex(0x000008)   /* RGB565 0x0001 */
@@ -18,7 +18,7 @@ static const char *TAG = "ui_live";
 static lv_obj_t *s_status;
 static lv_obj_t *s_toast;
 static lv_obj_t *s_slider;
-static lv_obj_t *s_chip[8];
+static lv_obj_t *s_chip[12];
 static lv_timer_t *s_toast_timer;
 
 /* ---- toast ---- */
@@ -45,7 +45,7 @@ static void rebuild_chain(void)
 {
     fx_chain_t chain;
     fx_chain_clear(&chain);
-    for (int i = 0; i < fx_registry_count() && i < 8; i++) {
+    for (int i = 0; i < fx_registry_count() && i < 12; i++) {
         if (s_chip[i] && lv_obj_has_state(s_chip[i], LV_STATE_CHECKED)) {
             if (fx_chain_add(&chain, fx_registry_get(i)) < 0) {
                 lv_obj_remove_state(s_chip[i], LV_STATE_CHECKED);
@@ -86,22 +86,23 @@ static void create_control_bar(lv_obj_t *parent)
     lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *row = lv_obj_create(bar);
-    lv_obj_set_size(row, LV_PCT(100), 64);
+    lv_obj_set_size(row, LV_PCT(100), 112);
     lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_set_style_bg_color(row, COLOR_KEY_DIM, 0);
     lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(row, 0, 0);
     lv_obj_set_style_pad_all(row, 0, 0);
-    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_column(row, 8, 0);
+    lv_obj_set_style_pad_row(row, 6, 0);
     lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
-    for (int i = 0; i < fx_registry_count() && i < 8; i++) {
+    for (int i = 0; i < fx_registry_count() && i < 12; i++) {
         const fx_desc_t *fx = fx_registry_get(i);
         lv_obj_t *b = lv_button_create(row);
         lv_obj_add_flag(b, LV_OBJ_FLAG_CHECKABLE);
-        lv_obj_set_height(b, 56);
+        lv_obj_set_height(b, 50);
         lv_obj_set_style_bg_color(b, lv_color_hex(0x303030), 0);
         lv_obj_set_style_bg_color(b, lv_color_hex(0xE0007A), LV_STATE_CHECKED);
         lv_obj_set_style_pad_hor(b, 10, 0);
@@ -114,7 +115,7 @@ static void create_control_bar(lv_obj_t *parent)
     }
 
     lv_obj_t *dice = lv_button_create(row);
-    lv_obj_set_height(dice, 56);
+    lv_obj_set_height(dice, 50);
     lv_obj_set_style_bg_color(dice, lv_color_hex(0x2060C0), 0);
     lv_obj_t *dl = lv_label_create(dice);
     lv_obj_set_style_text_font(dl, &lv_font_montserrat_16, 0);
