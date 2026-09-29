@@ -42,7 +42,7 @@ static void from_amount(float a, float *p)
 static uint16_t s_line[MAX_LINE];
 static uint8_t  s_luma[MAX_LINE];
 static uint16_t s_sorted[MAX_LINE];
-static uint16_t s_tile[TILE_COLS * MAX_LINE];   /* column-major tile: [col][row] */
+static uint16_t *s_tile;                        /* TILE_COLS*MAX_LINE, column-major [col][row], fx_big_alloc */
 
 /* counting sort of line[a..b) by luma, ascending (or descending when reverse) */
 static void FX_HOT sort_run(int a, int b, int reverse)
@@ -89,6 +89,10 @@ static void FX_HOT apply(const fx_frame_t *in, fx_frame_t *out, const float *p, 
     int W = in->w, H = in->h;
     if (H > MAX_LINE) H = MAX_LINE;
 
+    if (vertical && !s_tile) {
+        s_tile = fx_big_alloc((size_t)TILE_COLS * MAX_LINE * sizeof(uint16_t));
+        if (!s_tile) vertical = 0;
+    }
     if (!vertical) {
         for (int y = 0; y < H; y++) {
             const uint16_t *src = in->px + (size_t)y * in->stride_px;

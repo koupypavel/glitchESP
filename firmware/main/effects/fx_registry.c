@@ -1,6 +1,10 @@
 #include <string.h>
+#include <stdlib.h>
 #include <math.h>
 #include "fx.h"
+#if defined(ESP_PLATFORM)
+#include "esp_heap_caps.h"
+#endif
 
 /* Effects register themselves through these externs (one per file). */
 extern const fx_desc_t fx_chanshift;
@@ -12,6 +16,9 @@ extern const fx_desc_t fx_pixelsort;
 extern const fx_desc_t fx_tracers;
 extern const fx_desc_t fx_hueshift;
 extern const fx_desc_t fx_kaleido;
+extern const fx_desc_t fx_diffract;
+extern const fx_desc_t fx_drift;
+extern const fx_desc_t fx_breathe;
 
 static const fx_desc_t *const s_registry[] = {
     &fx_chanshift,
@@ -23,9 +30,21 @@ static const fx_desc_t *const s_registry[] = {
     &fx_tracers,
     &fx_hueshift,
     &fx_kaleido,
+    &fx_diffract,
+    &fx_drift,
+    &fx_breathe,
 };
 
 static fx_parallel_fn s_parallel;
+
+void *fx_big_alloc(size_t bytes)
+{
+#if defined(ESP_PLATFORM)
+    return heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM);
+#else
+    return malloc(bytes);
+#endif
+}
 
 int fx_registry_count(void)
 {

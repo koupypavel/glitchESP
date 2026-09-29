@@ -286,11 +286,12 @@ void frame_pipeline_on_camera_frame(uint8_t *camera_buf, uint8_t cam_idx,
         }
         s_p.fps_value = s_p.fps_count / 2;
         ae_state_t ae; auto_exposure_get(&ae);
-        ESP_LOGI(TAG, "cam %lu fps | wait %lu, copy %lu, fx %lu%s, ui %lu, total %lu us | luma %u expo %lu gain %lu/16 | %s",
+        ESP_LOGI(TAG, "cam %lu fps | wait %lu, copy %lu, fx %lu%s, ui %lu, total %lu us | int free %u KB | luma %u expo %lu gain %lu/16 | %s",
                  (unsigned long)s_p.fps_value, (unsigned long)(s_p.acc_wait_us / n),
                  (unsigned long)(s_p.acc_copy_us / n), (unsigned long)(s_p.acc_fx_us / n),
                  s_p.last_half ? " (half)" : "",
                  (unsigned long)(s_p.acc_ui_us / n), (unsigned long)(s_p.acc_total_us / n),
+                 (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
                  ae.measured_luma, (unsigned long)ae.exposure_lines, (unsigned long)ae.gain_x16,
                  chain_str[0] ? chain_str : "(no fx)");
         s_p.acc_wait_us = s_p.acc_fx_us = s_p.acc_copy_us = s_p.acc_ui_us = s_p.acc_total_us = 0;

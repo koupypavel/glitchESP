@@ -122,7 +122,7 @@ esp_err_t fx_parallel_init(void)
     s_w.start = xSemaphoreCreateBinary();
     s_w.done = xSemaphoreCreateBinary();
     ESP_RETURN_ON_FALSE(s_w.start && s_w.done, ESP_ERR_NO_MEM, TAG, "semaphores");
-    BaseType_t ok = xTaskCreatePinnedToCore(worker_task, "fx_worker", 8 * 1024, NULL, 12, &s_w.worker, 0);
+    BaseType_t ok = xTaskCreatePinnedToCore(worker_task, "fx_worker", 16 * 1024, NULL, 12, &s_w.worker, 0);
     ESP_RETURN_ON_FALSE(ok == pdPASS, ESP_FAIL, TAG, "worker task");
     fx_set_parallel_runner(run_split);
     ESP_LOGI(TAG, "row-parallel effects: worker on core 0");

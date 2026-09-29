@@ -21,7 +21,9 @@ set(srcs
     "effects/fx_pixelsort.c"
     "effects/fx_tracers.c"
     "effects/fx_hueshift.c"
-    "effects/fx_kaleido.c")
+    "effects/fx_kaleido.c"
+    "effects/fx_diffract.c"
+    "effects/fx_drift.c")
 
 idf_component_register(SRCS "${srcs}"
                        INCLUDE_DIRS "." "camera" "pipeline" "storage" "ui" "input" "effects" "display" "system")

@@ -19,7 +19,7 @@ static const char *TAG = "ui_live";
 static lv_obj_t *s_status;
 static lv_obj_t *s_toast;
 static lv_obj_t *s_slider;
-static lv_obj_t *s_chip[12];
+static lv_obj_t *s_chip[16];
 static lv_timer_t *s_toast_timer;
 static lv_obj_t *s_settings;   /* modal panel, NULL when closed */
 
@@ -47,7 +47,7 @@ static void rebuild_chain(void)
 {
     fx_chain_t chain;
     fx_chain_clear(&chain);
-    for (int i = 0; i < fx_registry_count() && i < 12; i++) {
+    for (int i = 0; i < fx_registry_count() && i < 16; i++) {
         if (s_chip[i] && lv_obj_has_state(s_chip[i], LV_STATE_CHECKED)) {
             if (fx_chain_add(&chain, fx_registry_get(i)) < 0) {
                 lv_obj_remove_state(s_chip[i], LV_STATE_CHECKED);
@@ -203,7 +203,7 @@ static void create_control_bar(lv_obj_t *parent)
     lv_obj_set_style_pad_row(row, 6, 0);
     lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
-    for (int i = 0; i < fx_registry_count() && i < 12; i++) {
+    for (int i = 0; i < fx_registry_count() && i < 16; i++) {
         const fx_desc_t *fx = fx_registry_get(i);
         lv_obj_t *b = lv_button_create(row);
         lv_obj_add_flag(b, LV_OBJ_FLAG_CHECKABLE);

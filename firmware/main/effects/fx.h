@@ -131,6 +131,10 @@ static inline unsigned fx_luma(uint16_t p)
     return (r * 77 + g * 151 + b * 28) >> 8;
 }
 
+/* Large working tables (>16 KB) must not live in on-chip RAM: allocate them through this
+ * (PSRAM on the device, malloc on the PC). Returns NULL on failure. Never freed. */
+void *fx_big_alloc(size_t bytes);
+
 void fx_frame_copy(const fx_frame_t *in, fx_frame_t *out);
 void fx_frame_copy_rows(const fx_frame_t *in, fx_frame_t *out, int y0, int y1);
 

@@ -30,7 +30,7 @@ static void from_amount(float a, float *p)
     p[P_CONTRAST] = 1.0f + a * 0.4f;
 }
 
-static uint16_t s_lut[65536];
+static uint16_t *s_lut;            /* 65536 entries, allocated with fx_big_alloc (PSRAM on device) */
 static float s_lut_angle = -1000.0f, s_lut_sat = -1, s_lut_con = -1;
 
 /* Build the table: hue rotation (Rodrigues form around the grey axis) + saturation + contrast. */
@@ -77,6 +77,11 @@ static void build_lut(float angle_deg, float sat, float con)
 
 static void prepare(const float *p, const fx_ctx_t *ctx)
 {
+    if (!s_lut) {
+        s_lut = fx_big_alloc(65536 * sizeof(uint16_t));
+        if (!s_lut) return;
+        s_lut_angle = -1000.0f;
+    }
     float angle = fmodf(p[P_ANGLE] + (float)ctx->frame_no * p[P_SPEED], 360.0f);
     float sat = fx_clampf(p[P_SAT], 0.0f, 4.0f), con = fx_clampf(p[P_CONTRAST], 0.25f, 3.0f);
     /* rebuild when the hue moved >= 4 degrees or another parameter changed */
@@ -93,6 +98,7 @@ static void FX_HOT apply(const fx_frame_t *in, fx_frame_t *out, const float *p, 
     (void)p;
     const uint16_t *lut = s_lut;
     int W = in->w;
+    if (!lut) { fx_frame_copy_rows(in, out, ctx->y0, ctx->y1); return; }
     for (int y = ctx->y0; y < ctx->y1; y++) {
         const uint16_t *src = in->px + (size_t)y * in->stride_px;
         uint16_t *dst = out->px + (size_t)y * out->stride_px;

@@ -144,9 +144,24 @@ pixel it is a single table load, so it is one of the cheapest effects.
 one side of the frame onto the other (2-way) and optionally the top onto the bottom (4-way);
 a slow sweep moves the axis so the symmetry breathes.
 
-Not yet built, with the intended approach: drifting/breathing (slow zoom oscillation via the
-PPA scaler), visual haze/glow (blend with a blurred low-resolution copy), environmental
-orbism (radial block displacement), scenery slicing (already close to scanline + blocks).
+**Diffraction** (`fx_diffract.c`, phenomenon: diffraction, "rainbows and spectrums of colour
+embedded within the brighter parts of the visual field"). Pixels above a brightness threshold
+feed a running decay swept along each row in both directions; each colour channel gets its own
+delay and decay (blue short and immediate, green medium, red long and offset), so the halo is
+ordered like a spectrum. Cost O(1) per pixel; ~3 KB of row buffers on the stack.
+
+**Drift** (`fx_drift.c`, phenomena: flowing, morphing). A displacement field made of several
+sine waves with unrelated frequencies and phase speeds, plus a slower cross-term for
+"morph", so the deformation never repeats. The field is evaluated every 16 pixels and
+interpolated in fixed point; per pixel it is two adds, a clamp and one load.
+
+**Breathe** (same file, phenomenon: breathing). The same sampler with a radial zoom about the
+centre that oscillates between normal size and `depth` percent expanded, at `rate` breaths
+per minute (assuming the 19 fps preview), with a small wobble. It only expands, so the
+sampler never leaves the frame.
+
+Not yet built: visual haze/glow (blend with a blurred low-resolution copy), environmental
+orbism (radial block displacement), melting (feedback warp that accumulates).
 
 ## 7. Adding an effect (checklist)
 
