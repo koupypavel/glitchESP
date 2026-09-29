@@ -313,3 +313,36 @@ void ui_live_on_capture_done(const capture_result_t *res)
         ui_lvgl_unlock();
     }
 }
+
+void ui_live_on_video_started(void)
+{
+    if (ui_lvgl_lock(200)) {
+        toast_show("REC  (hold BOOT to stop)", 1500);
+        ui_lvgl_unlock();
+    }
+}
+
+void ui_live_on_video_done(const video_result_t *res)
+{
+    char msg[128];
+    if (res->ok) {
+        const char *name = strrchr(res->path, '/');
+        snprintf(msg, sizeof(msg), "saved %s  %lu s, %lu frames%s", name ? name + 1 : res->path,
+                 (unsigned long)(res->duration_ms / 1000), (unsigned long)res->frames,
+                 res->dropped ? " (some dropped)" : "");
+    } else {
+        snprintf(msg, sizeof(msg), "video failed: %s", res->error ? res->error : "?");
+    }
+    if (ui_lvgl_lock(200)) {
+        toast_show(msg, 3000);
+        ui_lvgl_unlock();
+    }
+}
+
+void ui_live_on_video_error(const char *msg)
+{
+    if (ui_lvgl_lock(200)) {
+        toast_show(msg, 2000);
+        ui_lvgl_unlock();
+    }
+}

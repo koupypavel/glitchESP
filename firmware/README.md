@@ -20,9 +20,11 @@ The chip on this board is ESP32-P4 **rev v1.3**; `rev3_x` images are refused by 
 | `main/app_main.c` | Boot order: NVS → display/LVGL → SD → pipeline → capture → UI → camera → buttons |
 | `main/camera/` | V4L2 wrapper for the MIPI-CSI camera (from Waveshare example 09, CC0) |
 | `main/pipeline/` | Camera frame → PPA center-crop 800×1280 → 720×1280 RGB565 ring (3 buffers); capture snapshots |
-| `main/storage/` | Capture task: hardware JPEG encode → `/sdcard/GLITCH/IMG_nnnn.jpg` + `.json` sidecar; shot counter in NVS |
+| `main/storage/` | Capture task: stills (hardware JPEG → `/sdcard/GLITCH/IMG_nnnn.jpg` + `.json` recipe) and video (Motion-JPEG AVI → `VID_nnnn.avi` + `.json`, encoded straight from the panel frame buffer); counters in NVS |
 | `main/ui/` | LVGL live view: full-screen canvas fed from the ring, status bar, flash, toast |
-| `main/input/` | Shutter button (BOOT / GPIO35 for now) via `espressif/button` |
+| `main/input/` | BOOT button (GPIO35 for now): short press = photo, hold 0.7 s = start/stop video |
+| `main/system/` | Persistent settings (mirror/flip, preview quality, JPEG quality) in NVS |
+| `main/display/` | Direct DPI frame-buffer path with hold/release for the video encoder |
 
 ## M1 status
 
@@ -30,6 +32,14 @@ The chip on this board is ESP32-P4 **rev v1.3**; `rev3_x` images are refused by 
 - [ ] Live preview through LVGL canvas, fps in the status bar
 - [ ] BOOT shutter → JPEG + sidecar on SD, opens on a PC
 - [ ] Orientation check (mirror/flip)
+
+## Video
+
+Hold BOOT for 0.7 s to start recording, hold again to stop. Frames are the same 720×1280
+frames you see (effects burned in), JPEG quality 80, written as a Motion-JPEG AVI that any
+player opens. Expect roughly 15 fps and 1.5 to 2.5 MB/s on the card, so a fast card matters.
+While recording, the control bar is not drawn, so the video stays clean. The frame rate in the
+AVI header is measured at stop, and a `.json` sidecar records the effect recipe.
 
 ## Design notes
 

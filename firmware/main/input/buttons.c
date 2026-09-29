@@ -6,24 +6,30 @@
 
 static const char *TAG = "buttons";
 
-static buttons_shutter_cb_t s_cb;
+static buttons_shutter_cb_t s_shutter_cb;
+static buttons_shutter_cb_t s_video_cb;
 static void *s_user;
 
-static void on_shutter_press(void *handle, void *usr)
+static void on_click(void *handle, void *usr)
 {
     (void)handle; (void)usr;
-    if (s_cb) {
-        s_cb(s_user);
-    }
+    if (s_shutter_cb) s_shutter_cb(s_user);
 }
 
-esp_err_t buttons_init(buttons_shutter_cb_t on_shutter, void *user)
+static void on_long(void *handle, void *usr)
 {
-    s_cb = on_shutter;
+    (void)handle; (void)usr;
+    if (s_video_cb) s_video_cb(s_user);
+}
+
+esp_err_t buttons_init(buttons_shutter_cb_t on_shutter, buttons_shutter_cb_t on_video, void *user)
+{
+    s_shutter_cb = on_shutter;
+    s_video_cb = on_video;
     s_user = user;
 
     button_config_t btn_cfg = {
-        .long_press_time = 1500,
+        .long_press_time = 700,
         .short_press_time = 50,
     };
     button_gpio_config_t gpio_cfg = {
@@ -34,8 +40,9 @@ esp_err_t buttons_init(buttons_shutter_cb_t on_shutter, void *user)
     };
     button_handle_t btn = NULL;
     ESP_RETURN_ON_ERROR(iot_button_new_gpio_device(&btn_cfg, &gpio_cfg, &btn), TAG, "shutter button");
-    /* Fire on press-down so the shot feels instant; long-press is reserved for later. */
-    ESP_RETURN_ON_ERROR(iot_button_register_cb(btn, BUTTON_PRESS_DOWN, NULL, on_shutter_press, NULL), TAG, "cb");
-    ESP_LOGI(TAG, "shutter on GPIO%d", BTN_SHUTTER_GPIO);
+    /* short press (on release) = photo, long press (700 ms) = start/stop video */
+    ESP_RETURN_ON_ERROR(iot_button_register_cb(btn, BUTTON_SINGLE_CLICK, NULL, on_click, NULL), TAG, "click cb");
+    ESP_RETURN_ON_ERROR(iot_button_register_cb(btn, BUTTON_LONG_PRESS_START, NULL, on_long, NULL), TAG, "long cb");
+    ESP_LOGI(TAG, "shutter on GPIO%d (click = photo, hold = video)", BTN_SHUTTER_GPIO);
     return ESP_OK;
 }

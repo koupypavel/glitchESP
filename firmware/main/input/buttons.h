@@ -11,7 +11,7 @@ extern "C" {
 
 typedef void (*buttons_shutter_cb_t)(void *user);
 
-esp_err_t buttons_init(buttons_shutter_cb_t on_shutter, void *user);
+esp_err_t buttons_init(buttons_shutter_cb_t on_shutter, buttons_shutter_cb_t on_video, void *user);
 
 #ifdef __cplusplus
 }

@@ -16,6 +16,7 @@
 #include "display.h"
 #include "ui_lvgl.h"
 #include "fx_parallel.h"
+#include "capture.h"
 
 static const char *TAG = "pipeline";
 
@@ -259,9 +260,11 @@ void frame_pipeline_on_camera_frame(uint8_t *camera_buf, uint8_t cam_idx,
     }
 
     int64_t t1 = esp_timer_get_time();
-    ui_lvgl_stamp(fb);
+    bool recording = capture_video_active();
+    if (!recording) ui_lvgl_stamp(fb);            /* the video must stay clean */
     s_p.acc_ui_us += (uint64_t)(esp_timer_get_time() - t1);
     display_submit_fb(fb_idx);
+    if (recording) capture_video_on_frame(fb_idx, seq);
 
     s_p.last.px = fb;
     s_p.last.stride_px = FP_OUT_W;

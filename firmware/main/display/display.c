@@ -16,6 +16,7 @@ static struct {
     esp_lcd_panel_handle_t panel;
     uint16_t *fb[DISP_FB_NUM];
     volatile fb_state_t state[DISP_FB_NUM];
+    volatile bool held[DISP_FB_NUM];   /* in use by the video encoder */
     volatile int shown;        /* index currently scanned out, -1 = none */
     volatile int submitted;    /* index queued for the next vsync, -1 = none */
     SemaphoreHandle_t free_sem;
@@ -74,7 +75,7 @@ int display_acquire_fb(void)
         portENTER_CRITICAL(&s_d.lock);
         int found = -1;
         for (int i = 0; i < DISP_FB_NUM; i++) {
-            if (s_d.state[i] == FB_FREE) {
+            if (s_d.state[i] == FB_FREE && !s_d.held[i]) {
                 s_d.state[i] = FB_SUBMITTED;   /* reserved: not free, not yet queued */
                 found = i;
                 break;
@@ -82,6 +83,9 @@ int display_acquire_fb(void)
         }
         portEXIT_CRITICAL(&s_d.lock);
         if (found >= 0) return found;
+        /* the only free buffer is held by the encoder: wait a little and retry */
+        vTaskDelay(1);
+        xSemaphoreGive(s_d.free_sem);
     }
 }
 
@@ -103,6 +107,24 @@ esp_err_t display_submit_fb(int idx)
     portEXIT_CRITICAL(&s_d.lock);
     /* the buffer is one of the panel's own: cache write-back + DMA switch, no copy */
     return esp_lcd_panel_draw_bitmap(s_d.panel, 0, 0, DISP_W, DISP_H, s_d.fb[idx]);
+}
+
+bool display_hold_fb(int idx)
+{
+    if (idx < 0 || idx >= DISP_FB_NUM) return false;
+    portENTER_CRITICAL(&s_d.lock);
+    bool ok = !s_d.held[idx];
+    if (ok) s_d.held[idx] = true;
+    portEXIT_CRITICAL(&s_d.lock);
+    return ok;
+}
+
+void display_release_fb(int idx)
+{
+    if (idx < 0 || idx >= DISP_FB_NUM) return;
+    portENTER_CRITICAL(&s_d.lock);
+    s_d.held[idx] = false;
+    portEXIT_CRITICAL(&s_d.lock);
 }
 
 esp_lcd_panel_handle_t display_panel(void)

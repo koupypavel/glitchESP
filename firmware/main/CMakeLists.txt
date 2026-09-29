@@ -7,6 +7,7 @@ set(srcs
     "pipeline/fx_parallel.c"
     "pipeline/frame_pipeline.c"
     "storage/capture.c"
+    "storage/avi_writer.c"
     "ui/ui_live.c"
     "ui/ui_lvgl.c"
     "display/display.c"

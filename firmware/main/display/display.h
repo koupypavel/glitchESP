@@ -30,6 +30,10 @@ uint16_t *display_fb(int idx);
 /* Hand a filled buffer to the panel. Returns after the driver has queued the switch. */
 esp_err_t display_submit_fb(int idx);
 
+/* Keep a buffer out of the free pool while another consumer (video encoder) reads it. */
+bool display_hold_fb(int idx);
+void display_release_fb(int idx);
+
 esp_lcd_panel_handle_t display_panel(void);
 
 #ifdef __cplusplus

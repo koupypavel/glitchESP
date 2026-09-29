@@ -36,6 +36,28 @@ static void on_capture_done(const capture_result_t *res, void *user)
     ui_live_on_capture_done(res);
 }
 
+static void on_video_done(const video_result_t *res, void *user)
+{
+    (void)user;
+    ui_live_on_video_done(res);
+}
+
+static void on_video(void *user)
+{
+    (void)user;
+    if (capture_video_active()) {
+        capture_video_stop();
+        return;
+    }
+    esp_err_t ret = capture_video_start(on_video_done, NULL);
+    if (ret == ESP_OK) {
+        ui_live_on_video_started();
+    } else {
+        ESP_LOGW(TAG, "video start failed: %s", esp_err_to_name(ret));
+        ui_live_on_video_error(ret == ESP_ERR_NOT_FOUND ? "no SD card" : "cannot start video");
+    }
+}
+
 static void on_shutter(void *user)
 {
     (void)user;
@@ -117,7 +139,7 @@ void app_main(void)
     ESP_ERROR_CHECK(app_video_stream_task_start(cam_fd, 1, NULL));   /* camera + pipeline on core 1 */
 
     /* Shutter */
-    ESP_ERROR_CHECK(buttons_init(on_shutter, NULL));
+    ESP_ERROR_CHECK(buttons_init(on_shutter, on_video, NULL));
 
 
 #if GLITCH_BENCH
