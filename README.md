@@ -9,13 +9,17 @@ live, the shutter burns the effect into the saved photo or video, and every shot
 |---|---|---|---|
 | ![channel shift](tools/fxlab/samples/out_chanshift.png) | ![kaleido](tools/fxlab/samples/out_kaleido.png) | ![drift](tools/fxlab/samples/out_drift.png) | ![diffraction](tools/fxlab/samples/out_diffract.png) |
 
+| VHS | Databend | Slit scan | Pixel sort |
+|---|---|---|---|
+| ![VHS](tools/fxlab/samples/out_vhs.png) | ![databend](tools/fxlab/samples/out_databend.png) | ![slit scan](tools/fxlab/samples/out_slitscan.png) | ![pixel sort](tools/fxlab/samples/out_pixelsort.png) |
+
 *Effects rendered by the PC harness on synthetic test scenes.*
 
 ## What it does
 
-- **Live preview** at about 20 fps, with up to three effects chained. Twelve effects so far:
+- **Live preview** at about 20 fps, with up to three effects chained. Fifteen effects so far:
   channel shift, scanline smear, bit crush, blocks, wave, pixel sort, tracers, hue drift,
-  kaleido, diffraction, drift and breathe.
+  kaleido, diffraction, drift, breathe, VHS, slit scan and databend.
 - **One knob for "how broken".** An amount slider drives every active effect through its own
   mapping; a seed button re-rolls the randomness. Every parameter can also be set by hand.
 - **Photos**: hardware JPEG saved as `GLITCH/IMG_nnnn.jpg` with a `.json` sidecar listing
@@ -116,7 +120,7 @@ what was learned about performance on the ESP32-P4.
 
 ## Status
 
-Working on the device: preview, all twelve effects on both cores, parameter editing,
+Working on the device: preview, all fifteen effects on both cores, parameter editing,
 presets, zoom, settings, photos (including full-resolution stills) and video saved to the
 card, and the gallery. The wired controls on the header are implemented but untested.
 Still open from the original plan: a shutter sound, a battery indicator, and a smaller

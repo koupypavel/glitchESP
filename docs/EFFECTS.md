@@ -165,6 +165,31 @@ centre that oscillates between normal size and `depth` percent expanded, at `rat
 per minute (assuming the 19 fps preview), with a small wobble. It only expands, so the
 sampler never leaves the frame.
 
+### Media damage set
+
+**VHS** (`fx_vhs.c`). What a worn tape does. Tape stores colour with far less bandwidth than
+brightness, so colour smears to the right: green, which carries most of the brightness, is
+kept sharp while red and blue go through a one-pole low-pass along each row. On top of that
+the rows wander sideways on a slow sine, a noisy "tracking bar" drifts up the picture, the
+bottom rows are skewed where the heads switch, white dashes are scattered as snow, and
+every other row is slightly darker.
+
+**Slit scan** (`fx_slitscan.c`). Temporal. A narrow slit sweeps across the picture and only
+the part under it is refreshed from the camera; the rest stays as it was when the slit last
+passed. The picture is therefore assembled from many moments, and anything that moves
+while the slit crosses it comes out stretched or bent. The slit position follows from the
+frame number, so the effect keeps no state of its own beyond the history frame. Because
+there is a single history buffer, it cannot run together with Tracers (the UI refuses).
+
+**Databend** (`fx_databend.c`). The look of a JPEG with damaged bytes. A JPEG stores each
+block's brightness and colour as the difference from the previous block, so one bad byte
+shifts everything after it sideways and offsets its colours until the next restart marker.
+The effect draws that result directly: a few "breaks" are placed along the block stream and
+each changes the running shift and colour offset for what follows, occasionally smearing a
+stuck block across the row. This is an imitation, not real file corruption: it is fast,
+repeatable from the seed and works at any frame size, which a real encode, corrupt and
+decode round trip would not be.
+
 Not yet built: visual haze/glow (blend with a blurred low-resolution copy), environmental
 orbism (radial block displacement), melting (feedback warp that accumulates).
 

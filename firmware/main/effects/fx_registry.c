@@ -19,6 +19,9 @@ extern const fx_desc_t fx_kaleido;
 extern const fx_desc_t fx_diffract;
 extern const fx_desc_t fx_drift;
 extern const fx_desc_t fx_breathe;
+extern const fx_desc_t fx_vhs;
+extern const fx_desc_t fx_slitscan;
+extern const fx_desc_t fx_databend;
 
 static const fx_desc_t *const s_registry[] = {
     &fx_chanshift,
@@ -33,6 +36,9 @@ static const fx_desc_t *const s_registry[] = {
     &fx_diffract,
     &fx_drift,
     &fx_breathe,
+    &fx_vhs,
+    &fx_slitscan,
+    &fx_databend,
 };
 
 static fx_parallel_fn s_parallel;

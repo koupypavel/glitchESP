@@ -17,7 +17,7 @@ static const char *TAG = "ui_live";
 
 #define IDLE_DIM_MS 60000
 
-#define BAR_H   330     /* bottom control bar: three rows of chips, amount slider, tool buttons */
+#define BAR_H   394     /* bottom control bar: four rows of chips, amount slider, tool buttons */
 
 /* colours that map exactly onto the UI layer keys (see ui_lvgl.h) */
 #define COLOR_KEY_CLEAR   lv_color_hex(0x000008)   /* RGB565 0x0001 */
@@ -93,12 +93,22 @@ static int chips_checked(void)
     return n;
 }
 
-/* A fourth effect is refused: the chip that was just tapped goes back off. */
+/* A chip that was just switched on may have to go back off: a fourth effect is refused,
+ * and so is a second effect that needs the previous frame (there is one history buffer). */
 static bool chip_over_limit(lv_obj_t *chip)
 {
-    if (!lv_obj_has_state(chip, LV_STATE_CHECKED) || chips_checked() <= FX_CHAIN_MAX) return false;
+    if (!lv_obj_has_state(chip, LV_STATE_CHECKED)) return false;
+    const char *why = NULL;
+    if (chips_checked() > FX_CHAIN_MAX) why = "max 3 effects";
+    int temporal = 0, mine = -1;
+    for (int i = 0; i < fx_registry_count() && i < 16; i++) {
+        if (s_chip[i] == chip) mine = i;
+        if (s_chip[i] && lv_obj_has_state(s_chip[i], LV_STATE_CHECKED) && fx_registry_get(i)->temporal) temporal++;
+    }
+    if (!why && mine >= 0 && fx_registry_get(mine)->temporal && temporal > 1) why = "Tracers and Slit scan: one at a time";
+    if (!why) return false;
     lv_obj_remove_state(chip, LV_STATE_CHECKED);
-    toast_show("max 3 effects", 1200);
+    toast_show(why, 1500);
     return true;
 }
 
@@ -434,13 +444,14 @@ static void settings_open_cb(lv_event_t *e)
     lv_obj_add_event_cb(close, settings_close_cb, LV_EVENT_CLICKED, NULL);
 }
 
-/* Control bar geometry: three rows of four effect chips, the amount slider, five tools. */
+/* Control bar geometry: four rows of four effect chips, the amount slider, five tools. */
 #define BAR_PAD     12
 #define CHIP_COLS   4
 #define CHIP_GAP    8
 #define CHIP_W      ((FP_OUT_W - 2 * BAR_PAD - (CHIP_COLS - 1) * CHIP_GAP) / CHIP_COLS)
 #define CHIP_H      56
-#define CHIP_ROWS_H (3 * CHIP_H + 2 * CHIP_GAP)
+#define CHIP_ROWS   4
+#define CHIP_ROWS_H (CHIP_ROWS * CHIP_H + (CHIP_ROWS - 1) * CHIP_GAP)
 #define AMOUNT_H    44
 #define TOOL_N      5
 #define TOOL_GAP    10
@@ -521,7 +532,7 @@ static void create_control_bar(lv_obj_t *parent)
     lv_obj_set_style_pad_row(row, CHIP_GAP, 0);
     lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
-    for (int i = 0; i < fx_registry_count() && i < 3 * CHIP_COLS; i++) {
+    for (int i = 0; i < fx_registry_count() && i < CHIP_ROWS * CHIP_COLS; i++) {
         const fx_desc_t *fx = fx_registry_get(i);
         lv_obj_t *b = lv_button_create(row);
         lv_obj_add_flag(b, LV_OBJ_FLAG_CHECKABLE);

@@ -4,7 +4,8 @@
  *   fxlab --synth out.ppm                         write a 720x1280 synthetic test image
  *   fxlab in.ppm out.ppm [options] fx[:k=v,...] ...  apply an effect chain
  *
- * Options: --seed N   --frame N   --amount A(0..1)   --repeat N (timing loop)
+ * Options: --seed N   --frame N   --amount A(0..1)   --repeat N (run N frames, keep the last)
+ *          --scroll PX (slide the input sideways by PX every frame: motion for temporal effects)
  * Effects are applied in the order given (max 3). Parameters override the defaults, or
  * the one-knob mapping when --amount is given.
  * Images are binary PPM (P6). Convert with tools/fxlab/img.py (Pillow).
@@ -146,13 +147,13 @@ int main(int argc, char **argv)
         return rc;
     }
     if (argc < 3) {
-        fprintf(stderr, "usage: fxlab in.ppm out.ppm [--seed N] [--frame N] [--amount A] [--repeat N] fx[:k=v,..]...\n"
+        fprintf(stderr, "usage: fxlab in.ppm out.ppm [--seed N] [--frame N] [--amount A] [--repeat N] [--scroll PX] fx[:k=v,..]...\n"
                         "       fxlab --synth out.ppm | fxlab --list\n");
         return 2;
     }
 
     uint32_t seed = 1, frame = 0;
-    int repeat = 1, have_amount = 0;
+    int repeat = 1, have_amount = 0, scroll = 0;
     float amount = 0.5f;
     fx_chain_t chain;
     fx_chain_clear(&chain);
@@ -161,6 +162,7 @@ int main(int argc, char **argv)
         if (!strcmp(argv[i], "--seed") && i + 1 < argc)        seed = (uint32_t)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--frame") && i + 1 < argc)  frame = (uint32_t)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--repeat") && i + 1 < argc) repeat = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--scroll") && i + 1 < argc) scroll = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--amount") && i + 1 < argc) { amount = (float)atof(argv[++i]); have_amount = 1; }
         else if (parse_fx(&chain, argv[i], have_amount, amount) != 0) return 2;
     }
@@ -183,6 +185,15 @@ int main(int argc, char **argv)
     for (int r = 0; r < repeat; r++) {
         ctx.frame_no = frame + (uint32_t)r;
         ctx.prev = r > 0 ? &fhist : NULL;
+        if (scroll && r > 0) {                       /* fake motion: slide the scene sideways */
+            int s = ((scroll % w) + w) % w;
+            for (int y = 0; y < h; y++) {
+                uint16_t *row = in + (size_t)y * w;
+                memcpy(tmp, row + (w - s), (size_t)s * 2);
+                memmove(row + s, row, (size_t)(w - s) * 2);
+                memcpy(row, tmp, (size_t)s * 2);
+            }
+        }
         fx_chain_apply(&chain, &fin, &fout, &ftmp, &ctx);
     }
     double ms = (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC / (repeat > 0 ? repeat : 1);
