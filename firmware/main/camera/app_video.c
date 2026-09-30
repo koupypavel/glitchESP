@@ -340,8 +340,9 @@ static void video_stream_task(void *arg)
         }
 
         if (app_camera_video.video_task_delete) {
-            app_camera_video.video_task_delete = false;
             ESP_ERROR_CHECK(video_stream_stop(video_fd));
+            app_camera_video.video_stream_task_handle = NULL;   /* glitchESP: lets stop_wait() see the end */
+            app_camera_video.video_task_delete = false;
             vTaskDelete(NULL);
         }
     }
@@ -400,7 +401,47 @@ esp_err_t app_video_register_frame_operation_cb(app_video_frame_operation_cb_t o
     return ESP_OK;
 }
 
-/* ---- glitchESP additions: manual buffer release ---- */
+/* ---- glitchESP additions: stop and wait, sensor mode switch, manual buffer release ---- */
+
+esp_err_t app_video_stream_stop_wait(uint32_t timeout_ms)
+{
+    if (!app_camera_video.video_stream_task_handle) return ESP_OK;
+    app_camera_video.video_task_delete = true;
+    for (uint32_t waited = 0; app_camera_video.video_stream_task_handle; waited += 5) {
+        if (waited >= timeout_ms) return ESP_ERR_TIMEOUT;
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    return ESP_OK;
+}
+
+esp_err_t app_video_get_sensor_format(esp_cam_sensor_format_t *out)
+{
+    return ioctl(app_camera_video.video_fd, VIDIOC_G_SENSOR_FMT, out) == 0 ? ESP_OK : ESP_FAIL;
+}
+
+/* Stream must be stopped. Programs the sensor, then re-reads the frame size and asks for
+ * the application's pixel format again (the driver falls back to its default). */
+esp_err_t app_video_set_sensor_format(const esp_cam_sensor_format_t *fmt)
+{
+    int fd = app_camera_video.video_fd;
+    if (ioctl(fd, VIDIOC_S_SENSOR_FMT, fmt) != 0) {
+        ESP_LOGE(TAG, "set sensor format failed");
+        return ESP_FAIL;
+    }
+    struct v4l2_format format = { .type = V4L2_BUF_TYPE_VIDEO_CAPTURE };
+    if (ioctl(fd, VIDIOC_G_FMT, &format) != 0) return ESP_FAIL;
+    app_camera_video.camera_buf_hes = format.fmt.pix.width;
+    app_camera_video.camera_buf_ves = format.fmt.pix.height;
+    if (format.fmt.pix.pixelformat != APP_VIDEO_FMT) {
+        format.fmt.pix.pixelformat = APP_VIDEO_FMT;
+        if (ioctl(fd, VIDIOC_S_FMT, &format) != 0) {
+            ESP_LOGE(TAG, "set pixel format failed");
+            return ESP_FAIL;
+        }
+    }
+    ESP_LOGI(TAG, "sensor format '%s': %" PRIu32 "x%" PRIu32, fmt->name, format.fmt.pix.width, format.fmt.pix.height);
+    return ESP_OK;
+}
 
 void app_video_set_auto_release(bool enable)
 {

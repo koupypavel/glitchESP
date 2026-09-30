@@ -8,6 +8,7 @@
 #include "frame_pipeline.h"
 #include "fx.h"
 #include "settings.h"
+#include "cam_ctrl.h"
 
 static const char *TAG = "ui_live";
 
@@ -79,7 +80,7 @@ static void reroll_event_cb(lv_event_t *e)
 
 /* ---- zoom ---- */
 
-static const float k_zoom_steps[] = { 1.0f, 1.5f, 2.0f, 3.0f, 4.0f };
+static const float k_zoom_steps[] = { 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f };   /* 1.5 and up: un-binned sensor mode */
 #define ZOOM_STEPS ((int)(sizeof(k_zoom_steps) / sizeof(k_zoom_steps[0])))
 
 static void zoom_show(float z)
@@ -90,7 +91,7 @@ static void zoom_show(float z)
 
 static void zoom_step(int dir)
 {
-    float z = frame_pipeline_get_zoom();
+    float z = cam_ctrl_get_zoom();
     int idx = 0;
     for (int i = 1; i < ZOOM_STEPS; i++) {
         if (fabsf(k_zoom_steps[i] - z) < fabsf(k_zoom_steps[idx] - z)) idx = i;
@@ -98,7 +99,7 @@ static void zoom_step(int dir)
     idx += dir;
     if (idx < 0) idx = 0;
     if (idx >= ZOOM_STEPS) idx = ZOOM_STEPS - 1;
-    zoom_show(frame_pipeline_set_zoom(k_zoom_steps[idx]));
+    zoom_show(cam_ctrl_set_zoom(k_zoom_steps[idx]));
 }
 
 static void zoom_event_cb(lv_event_t *e)
@@ -138,7 +139,7 @@ static void create_zoom_controls(lv_obj_t *parent)
     lv_obj_set_width(s_zoom_label, 64);
     lv_obj_set_style_text_align(s_zoom_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(s_zoom_label, LV_ALIGN_RIGHT_MID, -10, -80);
-    zoom_show(frame_pipeline_get_zoom());
+    zoom_show(cam_ctrl_get_zoom());
 }
 
 /* ---- settings panel ---- */
@@ -365,7 +366,7 @@ void ui_live_create(void)
 void ui_live_set_zoom(float zoom)
 {
     if (!ui_lvgl_lock(200)) return;
-    zoom_show(frame_pipeline_set_zoom(zoom));
+    zoom_show(cam_ctrl_set_zoom(zoom));
     ui_lvgl_unlock();
 }
 

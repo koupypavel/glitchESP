@@ -13,7 +13,7 @@ live, the shutter burns the effect into the saved photo or video, and every shot
 
 ## What it does
 
-- **Live preview** at about 19 fps, with up to three effects chained. Twelve effects so far:
+- **Live preview** at about 20 fps, with up to three effects chained. Twelve effects so far:
   channel shift, scanline smear, bit crush, blocks, wave, pixel sort, tracers, hue drift,
   kaleido, diffraction, drift and breathe.
 - **One knob for "how broken".** An amount slider drives every active effect through its own
@@ -21,7 +21,9 @@ live, the shutter burns the effect into the saved photo or video, and every shot
 - **Photos**: hardware JPEG, 720×1280, saved as `GLITCH/IMG_nnnn.jpg` with a `.json` sidecar
   listing the effect chain, parameters, seed and frame number.
 - **Video**: Motion-JPEG AVI (`GLITCH/VID_nnnn.avi`) recorded from the same frames you see,
-  at roughly 15 fps.
+  at roughly 12 fps.
+- **Zoom** from 1× to 6×. 1× uses the sensor's 2×2 binned mode (widest view, least noise),
+  1.5× shows sensor pixels one to one, beyond that the picture is enlarged digitally.
 - **Settings** for mirror, flip and preview quality, stored in flash.
 
 ## Controls
@@ -31,6 +33,7 @@ live, the shutter burns the effect into the saved photo or video, and every shot
 | Effect chips (bottom bar) | Toggle an effect; up to three run in order |
 | Amount slider | Intensity of all active effects |
 | Seed button | New random seed |
+| + / − (right edge) | Zoom in and out |
 | Gear button | Settings: mirror left/right, flip up/down, preview quality |
 | BOOT button, short press | Take a photo |
 | BOOT button, hold 0.7 s | Start or stop video recording |
@@ -88,9 +91,8 @@ what was learned about performance on the ESP32-P4.
 
 ## Status
 
-Working on the device: preview, all twelve effects on both cores, settings, photo capture
-and video recording up to the point of writing to the card. **Saving to microSD has not been
-tested on hardware yet.** Still planned: presets, an on-device gallery, per-parameter effect
+Working on the device: preview, all twelve effects on both cores, zoom, settings, and
+photos and video saved to the card. Still planned: higher-resolution stills, presets, an on-device gallery, per-parameter effect
 editing, a wired shutter button and rotary knob on the expansion header, and a smaller video
 format using the P4's H.264 encoder.
 

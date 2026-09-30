@@ -21,8 +21,8 @@
 static const char *TAG = "pipeline";
 
 #define ALIGN_UP(num, align) (((num) + ((align) - 1)) & ~((align) - 1))
-#define ZOOM_MIN_Q8     256                           /* 1x: the 720x1280 window, pixel for pixel */
-#define ZOOM_MAX_Q8     (4 * 256)
+#define ZOOM_MIN_Q8     256                           /* 1x: the whole view of the wide sensor mode */
+#define ZOOM_MAX_Q8     (8 * 256)
 #define HALF_W          (FP_OUT_W / 2)
 #define HALF_H          (FP_OUT_H / 2)
 #define HALF_BYTES      (HALF_W * HALF_H * 2)
@@ -34,7 +34,8 @@ typedef struct {
     int half_cur;                                  /* which half_out holds the latest output */
     uint16_t *prev_full;                           /* previous full-res clean output (temporal fx) */
     uint16_t *zoom_buf;                            /* zoomed full-res input for the effect chain */
-    volatile uint32_t zoom_q8;                     /* digital zoom, 256 = 1x */
+    volatile uint32_t zoom_q8;                     /* zoom, 256 = 1x */
+    volatile uint32_t view_base_w;                 /* camera pixels across the screen at 1x (sensor mode dependent) */
     bool prev_full_valid, prev_half_valid;
     volatile fp_quality_t quality;
     volatile bool last_half;
@@ -64,6 +65,7 @@ static pipeline_t s_p = {
     .lock = portMUX_INITIALIZER_UNLOCKED,
     .recipe = { .amount = 0.5f, .seed = 1, .zoom = 1.0f },
     .zoom_q8 = ZOOM_MIN_Q8,
+    .view_base_w = FP_OUT_W,
 };
 
 esp_err_t frame_pipeline_init(void)
@@ -192,22 +194,125 @@ static void IRAM_ATTR scale_rows(void *arg, int y0, int y1)
 /* The part of the camera frame that is shown: centered, FP_OUT aspect, shrinking with zoom. */
 typedef struct { int x, y, w, h; } view_rect_t;
 
-static view_rect_t view_rect(uint32_t cam_w, uint32_t cam_h, uint32_t zoom_q8)
+static view_rect_t view_rect(uint32_t cam_w, uint32_t cam_h, uint32_t base_w, uint32_t zoom_q8)
 {
     view_rect_t v;
-    v.w = (int)((FP_OUT_W * 256u) / zoom_q8) & ~1;
-    v.h = (int)((FP_OUT_H * 256u) / zoom_q8) & ~1;
-    if (v.w > (int)cam_w) v.w = (int)cam_w;
-    if (v.h > (int)cam_h) v.h = (int)cam_h;
+    v.w = (int)((base_w * 256u) / zoom_q8);
+    v.h = (int)(((uint64_t)base_w * 256u * FP_OUT_H) / ((uint64_t)zoom_q8 * FP_OUT_W));
+    /* a zoom the current sensor mode cannot cover (mid mode switch): show all it has */
+    if (v.w > (int)cam_w) { v.h = (int)((int64_t)v.h * cam_w / v.w); v.w = (int)cam_w; }
+    if (v.h > (int)cam_h) { v.w = (int)((int64_t)v.w * cam_h / v.h); v.h = (int)cam_h; }
+    v.w &= ~1;
+    v.h &= ~1;
     v.x = (((int)cam_w - v.w) / 2) & ~1;                    /* even: keeps 32-bit reads aligned */
     v.y = ((int)cam_h - v.h) / 2;
     return v;
+}
+
+/*
+ * Fast path for the wide sensor mode at zoom 1.0: exactly 3 source pixels -> 4 output pixels
+ * in both directions (540x960 -> 720x1280).
+ *
+ * Sampling the source every 0.75 pixel gives positions 0, 0.75, 1.5, 2.25, then the pattern
+ * repeats, so the only blend weights are 0, 1/4, 1/2 and 3/4. Those need no multiplication:
+ * the average of two RGB565 pixels is
+ *     (a & b) + (((a ^ b) & 0xF7DE) >> 1)
+ * (shared bits, plus half of the differing bits with each channel's lowest bit masked so
+ * nothing spills into the neighbouring channel), and a 1/4 : 3/4 mix is two averages. The
+ * same expression works on a 32-bit word holding two pixels. One average rounds down and
+ * the other up so the picture does not get darker.
+ */
+#define AVG_MASK 0xF7DEF7DEu
+static inline __attribute__((always_inline)) uint32_t avg_dn(uint32_t a, uint32_t b) { return (a & b) + (((a ^ b) & AVG_MASK) >> 1); }
+static inline __attribute__((always_inline)) uint32_t avg_up(uint32_t a, uint32_t b) { return (a | b) - (((a ^ b) & AVG_MASK) >> 1); }
+
+typedef struct {
+    const uint16_t *src; uint32_t src_stride;       /* top-left pixel of the view */
+    int src_w, src_h;                               /* view size (multiples of 3) */
+    uint16_t *dst; int dst_w;
+} scale43_arg_t;
+
+/* One source row -> dst_w packed pixels (two per word). */
+static inline __attribute__((always_inline)) void scale43_hline(const scale43_arg_t *s, int row, uint32_t *line)
+{
+    const uint16_t *r = s->src + (size_t)row * s->src_stride;
+    int groups = s->src_w / 3;
+    for (int g = 0; g < groups; g++, r += 3) {
+        uint32_t s0 = r[0], s1 = r[1], s2 = r[2], s3 = r[3];
+        uint32_t o1 = avg_up(avg_dn(s0, s1), s1);           /* 1/4 s0 + 3/4 s1 */
+        uint32_t o2 = avg_dn(s1, s2);
+        uint32_t o3 = avg_dn(avg_up(s2, s3), s2);           /* 3/4 s2 + 1/4 s3 */
+        line[2 * g]     = s0 | (o1 << 16);
+        line[2 * g + 1] = o2 | (o3 << 16);
+    }
+}
+
+static void IRAM_ATTR scale43_rows(void *arg, int y0, int y1)
+{
+    const scale43_arg_t *s = arg;
+    uint32_t line_a[FP_OUT_W / 2], line_b[FP_OUT_W / 2];    /* two scaled source rows, 2.9 KB of stack */
+    uint32_t *la = line_a, *lb = line_b;
+    int have_a = -1, have_b = -1;
+    int words = s->dst_w / 2, last = s->src_h - 1;
+    for (int y = y0; y < y1; y++) {
+        int phase = y & 3;
+        int ra = (y >> 2) * 3 + (phase ? phase - 1 : 0);    /* upper source row of the pair */
+        int rb = ra + 1 > last ? last : ra + 1;
+        if (have_a != ra) {
+            if (have_b == ra) { uint32_t *t = la; la = lb; lb = t; have_a = ra; have_b = -1; }
+            else              { scale43_hline(s, ra, la); have_a = ra; }
+        }
+        uint32_t *d = (uint32_t *)(s->dst + (size_t)y * s->dst_w);
+        if (phase == 0) {
+            memcpy(d, la, (size_t)words * 4);
+            continue;
+        }
+        if (have_b != rb) { scale43_hline(s, rb, lb); have_b = rb; }
+        if (phase == 1)      for (int i = 0; i < words; i++) d[i] = avg_up(avg_dn(la[i], lb[i]), lb[i]);
+        else if (phase == 2) for (int i = 0; i < words; i++) d[i] = avg_dn(la[i], lb[i]);
+        else                 for (int i = 0; i < words; i++) d[i] = avg_dn(avg_up(la[i], lb[i]), la[i]);
+    }
+}
+
+/*
+ * The companion for the half-resolution effect path: 3 source pixels -> 2 output pixels
+ * (540x960 -> 360x640). Output pixels sit at source positions 0.25 and 1.75 of each group
+ * of three, i.e. 3/4 : 1/4 mixes again. Rows are mixed first (two pixels per word, straight
+ * from the camera frame), then the mixed row is squeezed horizontally.
+ */
+static void IRAM_ATTR scale32_rows(void *arg, int y0, int y1)
+{
+    const scale43_arg_t *s = arg;
+    uint32_t line[(FP_OUT_W * 3 / 4) / 2];                  /* one mixed source row, up to 540 px */
+    int words = s->src_w / 2, groups = s->src_w / 3;
+    for (int y = y0; y < y1; y++) {
+        const uint16_t *ra = s->src + (size_t)((y >> 1) * 3 + (y & 1)) * s->src_stride;
+        const uint32_t *a = (const uint32_t *)ra, *b = (const uint32_t *)(ra + s->src_stride);
+        if (!(y & 1)) for (int i = 0; i < words; i++) line[i] = avg_dn(avg_up(a[i], b[i]), a[i]);   /* 3/4 a + 1/4 b */
+        else          for (int i = 0; i < words; i++) line[i] = avg_up(avg_dn(a[i], b[i]), b[i]);   /* 1/4 a + 3/4 b */
+        const uint16_t *p = (const uint16_t *)line;
+        uint32_t *d = (uint32_t *)(s->dst + (size_t)y * s->dst_w);
+        for (int g = 0; g < groups; g++, p += 3) {
+            uint32_t s0 = p[0], s1 = p[1], s2 = p[2];
+            d[g] = avg_dn(avg_up(s0, s1), s0) | (avg_up(avg_dn(s1, s2), s2) << 16);
+        }
+    }
 }
 
 /* Scale `v` (a rectangle of the camera frame) to a dst_w x dst_h image. */
 static void scale_view(const uint16_t *cam, uint32_t cam_w, uint32_t cam_h, const view_rect_t *v,
                        uint16_t *dst, int dst_w, int dst_h)
 {
+    if (v->w * 2 == dst_w * 3 && v->h * 2 == dst_h * 3 && v->w % 6 == 0 && !(v->x & 1) && !(cam_w & 1) && dst_w <= FP_OUT_W / 2) {
+        scale43_arg_t a32 = { cam + (size_t)v->y * cam_w + v->x, cam_w, v->w, v->h, dst, dst_w };
+        fx_parallel_rows(scale32_rows, &a32, 0, dst_h, dst, (uint32_t)dst_w);
+        return;
+    }
+    if (v->w * 4 == dst_w * 3 && v->h * 4 == dst_h * 3 && v->w % 3 == 0 && v->x + v->w < (int)cam_w) {
+        scale43_arg_t a43 = { cam + (size_t)v->y * cam_w + v->x, cam_w, v->w, v->h, dst, dst_w };
+        fx_parallel_rows(scale43_rows, &a43, 0, dst_h, dst, (uint32_t)dst_w);
+        return;
+    }
     /* Pixel centres: output pixel i sits at source position x + (i + 0.5) * step - 0.5. */
     int32_t step_x = (int32_t)(((int64_t)v->w << 16) / dst_w);
     int32_t step_y = (int32_t)(((int64_t)v->h << 16) / dst_h);
@@ -302,7 +407,7 @@ void frame_pipeline_on_camera_frame(uint8_t *camera_buf, uint8_t cam_idx,
     int64_t t_start = esp_timer_get_time();
     if (s_p.last_end_us) s_p.acc_wait_us += (uint64_t)(t_start - s_p.last_end_us);
 
-    if (cam_w < FP_OUT_W || cam_h < FP_OUT_H) {
+    if (cam_w < 64 || cam_h < 64) {
         ESP_LOGE(TAG, "unexpected camera frame %ux%u", (unsigned)cam_w, (unsigned)cam_h);
         app_video_release_frame(cam_idx);
         return;
@@ -311,7 +416,7 @@ void frame_pipeline_on_camera_frame(uint8_t *camera_buf, uint8_t cam_idx,
     /* What is shown: a centered rectangle of the camera frame. At 1x it is exactly
      * 720x1280 and is used in place; anything else goes through the scaler. */
     uint32_t zoom_q8 = s_p.zoom_q8;
-    view_rect_t view = view_rect(cam_w, cam_h, zoom_q8);
+    view_rect_t view = view_rect(cam_w, cam_h, s_p.view_base_w, zoom_q8);
     bool scaled = view.w != FP_OUT_W || view.h != FP_OUT_H;
     const uint16_t *cam = (const uint16_t *)camera_buf;
     const uint16_t *cam_px = cam + (size_t)view.y * cam_w + view.x;   /* top-left of the view, stride cam_w */
@@ -507,6 +612,11 @@ float frame_pipeline_set_zoom(float zoom)
 }
 
 float frame_pipeline_get_zoom(void) { return (float)s_p.zoom_q8 / 256.0f; }
+
+void frame_pipeline_set_view_base(uint32_t cam_px_across_at_1x)
+{
+    s_p.view_base_w = cam_px_across_at_1x;
+}
 
 void frame_pipeline_set_quality(fp_quality_t q) { s_p.quality = q; }
 bool frame_pipeline_last_was_half(void)         { return s_p.last_half; }

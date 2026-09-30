@@ -96,6 +96,18 @@ void auto_exposure_feed(const uint16_t *px, int w, int h, int stride_px)
     }
 }
 
+void auto_exposure_restart(uint32_t max_exposure_lines, uint32_t num, uint32_t den)
+{
+    uint32_t expo = den ? (uint32_t)((uint64_t)s_ae.exposure_lines * num / den) : s_ae.exposure_lines;
+    if (expo < 8) expo = 8;
+    if (expo > max_exposure_lines) expo = max_exposure_lines;
+    s_ae.exposure_lines = expo;
+    s_ae.max_exposure_lines = max_exposure_lines;
+    ov5647_ctl_set_manual(true, true);
+    s_applied = false;               /* write exposure/gain again once frames are flowing */
+    s_frame_counter = 0;
+}
+
 void auto_exposure_set_max_exposure(uint32_t lines)
 {
     s_ae.max_exposure_lines = lines;

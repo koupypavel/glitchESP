@@ -20,6 +20,7 @@
 #include "frame_pipeline.h"
 #include "ui_live.h"
 #include "ov5647_ctl.h"
+#include "cam_ctrl.h"
 
 static const char *TAG = "remote";
 
@@ -140,7 +141,11 @@ static void handle(char *line)
         if (r != ESP_OK) printf("dump: %s\n", esp_err_to_name(r));
     } else if (!strcmp(line, "zoom")) {
         if (*arg) ui_live_set_zoom((float)atof(arg));
-        printf("zoom %.2f\n", (double)frame_pipeline_get_zoom());
+        printf("zoom %.2f (%s)\n", (double)cam_ctrl_get_zoom(), cam_ctrl_mode_name());
+    } else if (!strcmp(line, "tele")) {
+        unsigned x = 0, y = 0;
+        if (sscanf(arg, "%u %u", &x, &y) == 2) cam_ctrl_set_tele_origin((uint16_t)x, (uint16_t)y);
+        else printf("usage: tele <x0> <y0>\n");
     } else if (!strcmp(line, "fx")) {
         printf("fx %s: %s\n", arg, ui_live_toggle_effect(arg) ? "toggled" : "unknown effect or chain full");
     } else if (!strcmp(line, "amount")) {
@@ -154,7 +159,7 @@ static void handle(char *line)
     } else if (!strcmp(line, "sdbench")) {
         cmd_sdbench();
     } else if (!strcmp(line, "help")) {
-        printf("commands: photo | video | dump | zoom [1..4] | fx <id> | amount <0..1> | ls | get <file> | reg <hex> [hex] | sdbench\n");
+        printf("commands: photo | video | dump | zoom [1..6] | tele <x0> <y0> | fx <id> | amount <0..1> | ls | get <file> | reg <hex> [hex] | sdbench\n");
     } else {
         printf("unknown command '%s' (try help)\n", line);
     }

@@ -25,6 +25,7 @@
 #include "fx_parallel.h"
 #include "settings.h"
 #include "remote.h"
+#include "cam_ctrl.h"
 
 #define GLITCH_BENCH 0          /* 1 = run main/bench.c after boot (effect timings, test shot) */
 void bench_start(void);
@@ -117,6 +118,7 @@ void app_main(void)
     }
     size_t cache_line = 0;
     ESP_ERROR_CHECK(esp_cache_get_alignment(MALLOC_CAP_SPIRAM, &cache_line));
+    /* Buffers are sized for the largest sensor mode (800x1280, what the driver starts in). */
     void *cam_buf[FP_CAM_BUFS];
     for (int i = 0; i < FP_CAM_BUFS; i++) {
         cam_buf[i] = heap_caps_aligned_calloc(cache_line, 1, app_video_get_buf_size(), MALLOC_CAP_SPIRAM);
@@ -125,21 +127,16 @@ void app_main(void)
             return;
         }
     }
-    ESP_ERROR_CHECK(app_video_set_bufs(cam_fd, FP_CAM_BUFS, (const void **)cam_buf));
 
     /*
-     * Sensor timing + exposure, programmed before streaming starts (the driver only writes
-     * its register table when the format is set). The mode table yields ~16 fps and its
-     * built-in AEC does not adapt here, so: faster frame timing + our own AE in manual mode.
+     * Sensor modes, frame timing and exposure (camera/cam_ctrl.c): the driver's built-in
+     * auto exposure does not adapt in this configuration, so the sensor runs in manual mode
+     * under our own AE. Starts in the wide (binned) mode; orientation comes from settings.
      */
-    ESP_ERROR_CHECK(ov5647_ctl_init());
-    ESP_ERROR_CHECK(ov5647_ctl_set_timing(OV5647_HTS_FAST, OV5647_VTS_FAST));
-    ESP_ERROR_CHECK(auto_exposure_init(OV5647_EXPO_MAX(OV5647_VTS_FAST) / 2, 16, OV5647_EXPO_MAX(OV5647_VTS_FAST)));
-
-    ESP_ERROR_CHECK(app_video_register_frame_operation_cb(frame_pipeline_on_camera_frame));
     ESP_ERROR_CHECK(settings_init());
-    settings_apply();                                                 /* orientation, quality */
-    ESP_ERROR_CHECK(app_video_stream_task_start(cam_fd, 1, NULL));   /* camera + pipeline on core 1 */
+    ESP_ERROR_CHECK(app_video_register_frame_operation_cb(frame_pipeline_on_camera_frame));
+    ESP_ERROR_CHECK(cam_ctrl_init(cam_fd, cam_buf, FP_CAM_BUFS));
+    ESP_ERROR_CHECK(cam_ctrl_start());                                /* camera + pipeline on core 1 */
 
     /* Shutter */
     ESP_ERROR_CHECK(buttons_init(on_shutter, on_video, NULL));

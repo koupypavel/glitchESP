@@ -1,14 +1,12 @@
 /*
- * Frame pipeline (zero-copy).
+ * Frame pipeline: camera frame -> view rectangle -> [scale] -> [effect chain] -> panel
+ * frame buffer (+ UI layer stamped on top).
  *
- * The camera delivers 800x1280 RGB565 frames. The display shows the centered 720x1280 window
- * of that frame *in place* (LVGL reads the camera buffer with an 800-pixel stride), so with no
- * effects active nothing is copied at all. With effects active, the chain reads that window
- * and writes a 720x1280 output buffer from a small ring, and the camera buffer is returned to
- * the driver immediately.
- *
- * Camera buffers are owned by this module while displayable: the newest two frames and the one
- * the UI shows are held, everything else is handed back to the driver.
+ * The camera delivers RGB565 frames whose size depends on the sensor mode (640x960 binned or
+ * 800x1280, see camera/cam_ctrl.h). A centered rectangle with the screen's aspect ratio is
+ * shown; it is copied when it is exactly 720x1280 and scaled otherwise. Everything is
+ * rendered straight into one of the panel's own frame buffers, which the panel then
+ * switches to, and the camera buffer goes back to the driver within the same callback.
  */
 #pragma once
 
@@ -79,9 +77,14 @@ void frame_pipeline_set_amount(float amount);             /* re-maps every slot 
 void frame_pipeline_set_seed(uint32_t seed);
 uint32_t frame_pipeline_reroll(void);                     /* new random seed, returns it */
 
-/* ---- digital zoom: 1.0 (the 720x1280 window, pixel for pixel) to 4.0; returns the value set ---- */
-float frame_pipeline_set_zoom(float zoom);
+/* ---- view: which part of the camera frame is shown ----
+ * The shown rectangle is centered, has the screen's aspect ratio, and is
+ * (view base / zoom) camera pixels wide. The view base depends on the sensor mode (how many
+ * of its pixels span the screen at 1x), so camera/cam_ctrl.c sets both; use cam_ctrl_set_zoom()
+ * from the UI. */
+float frame_pipeline_set_zoom(float zoom);                /* returns the value set */
 float frame_pipeline_get_zoom(void);
+void frame_pipeline_set_view_base(uint32_t cam_px_across_at_1x);
 
 /* ---- preview quality ---- */
 typedef enum { FP_QUALITY_AUTO = 0, FP_QUALITY_FULL, FP_QUALITY_HALF } fp_quality_t;

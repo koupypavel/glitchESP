@@ -1,53 +1,107 @@
 # glitchESP firmware
 
-ESP-IDF v5.5.5 project for the Waveshare ESP32-P4-WIFI6-Touch-LCD-5. See `../PLAN.md` for
-the roadmap; this folder is the code.
+ESP-IDF v5.5.5 project for the Waveshare ESP32-P4-WIFI6-Touch-LCD-5 with an OV5647 camera.
 
 ## Build and flash
 
 ```powershell
-.\build.ps1              # build (rev1_3 silicon profile, matches this board)
+.\build.ps1              # build (rev1_3 silicon profile)
 .\build.ps1 COM10        # build + flash over the USB-UART port
-python serial_capture.py COM10 10    # reset and capture 10 s of log (IDF python env)
+.\build.ps1 COM10 rev3_x # other silicon profile (untested)
 ```
 
-The chip on this board is ESP32-P4 **rev v1.3**; `rev3_x` images are refused by esptool.
+`esptool` refuses a `rev3_x` image on a rev v1.x chip and the other way round, so pick the
+profile that matches your board (`esptool.py chip_id` prints the revision).
 
 ## Layout
 
 | Path | Role |
 |---|---|
-| `main/app_main.c` | Boot order: NVS → display/LVGL → SD → pipeline → capture → UI → camera → buttons |
-| `main/camera/` | V4L2 wrapper for the MIPI-CSI camera (from Waveshare example 09, CC0) |
-| `main/pipeline/` | Camera frame → PPA center-crop 800×1280 → 720×1280 RGB565 ring (3 buffers); capture snapshots |
-| `main/storage/` | Capture task: stills (hardware JPEG → `/sdcard/GLITCH/IMG_nnnn.jpg` + `.json` recipe) and video (Motion-JPEG AVI → `VID_nnnn.avi` + `.json`, encoded straight from the panel frame buffer); counters in NVS |
-| `main/ui/` | LVGL live view: full-screen canvas fed from the ring, status bar, flash, toast |
-| `main/input/` | BOOT button (GPIO35 for now): short press = photo, hold 0.7 s = start/stop video |
-| `main/system/` | Persistent settings (mirror/flip, preview quality, JPEG quality) in NVS |
-| `main/display/` | Direct DPI frame-buffer path with hold/release for the video encoder |
+| `main/app_main.c` | Boot order: NVS → display → LVGL → SD → pipeline → capture → UI → camera → buttons |
+| `main/camera/app_video.*` | V4L2 wrapper for the MIPI-CSI camera (from the Espressif/Waveshare example, modified) |
+| `main/camera/cam_ctrl.*` | Sensor modes (wide binned / 1:1) and zoom; restarts the stream when the mode changes |
+| `main/camera/ov5647_ctl.*` | Direct sensor register access: exposure, gain, frame timing |
+| `main/pipeline/frame_pipeline.*` | Per camera frame: pick the view, scale, run the effect chain, stamp the UI, show it |
+| `main/pipeline/auto_exposure.*` | Software auto exposure (the sensor's own does not adapt in this setup) |
+| `main/pipeline/fx_parallel.*` | Splits row-parallel work across both CPU cores |
+| `main/effects/` | The effect engine and the effects (plain C, also built on the PC by `tools/fxlab`) |
+| `main/display/` | The panel's three frame buffers: acquire, submit, hold for the video encoder |
+| `main/ui/` | LVGL widgets drawn into a separate layer that is stamped onto each frame |
+| `main/storage/` | Stills (hardware JPEG + `.json` recipe), Motion-JPEG AVI, fast SD writer |
+| `main/input/` | BOOT button (GPIO35): short press = photo, hold 0.7 s = start/stop video |
+| `main/system/` | Settings in NVS (mirror/flip, preview quality, JPEG quality), serial remote |
+| `main/bench.c` | On-device benchmark, enabled with `GLITCH_BENCH` in `app_main.c` |
 
-## M1 status
+## How a frame gets to the screen
 
-- [x] Project builds against the Component Registry (esp_video, LVGL 9.5, Waveshare BSP, button)
-- [ ] Live preview through LVGL canvas, fps in the status bar
-- [ ] BOOT shutter → JPEG + sidecar on SD, opens on a PC
-- [ ] Orientation check (mirror/flip)
+1. The camera driver delivers an RGB565 frame (640×960 in the wide mode, 800×1280 in the
+   1:1 mode) into one of five buffers in PSRAM.
+2. `frame_pipeline` works out the centered rectangle to show for the current zoom.
+3. With no effect active it is copied or scaled straight into a free panel frame buffer.
+   With effects, the chain runs either at full resolution or at 360×640 and is then
+   pixel-doubled (chosen from the effects' cost, or forced in the settings).
+4. The UI layer's non-transparent pixels are stamped on top, and the frame buffer is handed
+   to the panel (no copy; the panel just switches buffers).
+5. A photo copies the finished frame (before the UI stamp) to the JPEG encoder; video
+   encodes straight from the frame buffer that was just shown.
+
+The camera task, and with it all per-frame work, runs on core 1; a worker on core 0 takes
+the upper half of the rows for anything that can be split. LVGL, capture, SD writes and
+buttons live on core 0.
+
+## Zoom and sensor modes
+
+The screen is 9:16, the sensor 4:3, so the picture is always a slice of the sensor.
+
+| Zoom | Sensor mode | What is shown |
+|---|---|---|
+| 1.0× | wide: 2×2 binning, 640×960 frame | 540×960 binned pixels (1080×1920 on the sensor), enlarged 1.33× |
+| 1.5× | 1:1: no binning, 800×1280 frame | 720×1280 sensor pixels, one per screen pixel |
+| 2× to 6× | 1:1 | a smaller rectangle, enlarged by the bilinear scaler |
+
+The wide mode sees more, gathers about twice the light per pixel and is much less noisy;
+the 1:1 mode resolves more detail in a narrower view. Switching between them restarts the
+camera stream (about 50 ms). Both modes are built at run time from the driver's 800×1280
+register table plus a few overrides (window, binning, frame timing), see `cam_ctrl.c`.
 
 ## Video
 
 Hold BOOT for 0.7 s to start recording, hold again to stop. Frames are the same 720×1280
 frames you see (effects burned in), JPEG quality 80, written as a Motion-JPEG AVI that any
-player opens. Expect roughly 15 fps and 1.5 to 2.5 MB/s on the card, so a fast card matters.
-While recording, the control bar is not drawn, so the video stays clean. The frame rate in the
-AVI header is measured at stop, and a `.json` sidecar records the effect recipe.
+player opens. About 12 fps without effects (the JPEG encoder is the limit), 1 MB/s on the
+card. While recording, the control bar is not drawn, so the video stays clean. The frame
+rate in the AVI header is measured at stop, and a `.json` sidecar records the recipe.
 
-## Design notes
+## Serial remote
 
-- **Compositing:** LVGL owns the panel frame buffers (triple full-frame mode). The video is an
-  `lv_canvas` whose buffer pointer is swapped to the newest ring entry every LVGL tick, so the
-  UI draws on top for free. The adapter's "dummy draw" mode was rejected because it discards
-  LVGL's own output.
-- **Threads:** camera + PPA + snapshot copy run on core 1 in the esp_video stream task; LVGL,
-  capture/JPEG/SD and buttons run on core 0.
-- **Cache:** ring buffers are cache-line aligned in PSRAM; the snapshot is written back
-  (`esp_cache_msync` C2M) before the JPEG DMA engine reads it.
+The console UART (115200 baud) accepts text commands, so the camera can be driven and
+checked from a PC:
+
+```
+photo | video | dump | zoom [1..6] | fx <id> | amount <0..1> | ls | get <file>
+reg <hex> [hex] | tele <x0> <y0> | sdbench | help
+```
+
+`serial_capture.py` resets the board, logs for a while and can send commands at given
+times; `decode_jpeg_dump.py` and `decode_file_dump.py` turn a logged `dump` or `get` back
+into files (run them with the ESP-IDF python environment):
+
+```powershell
+python serial_capture.py COM10 30 --out run.log 5:dump 20:"zoom 1.5" 22:photo 25:ls
+python decode_jpeg_dump.py run.log frame.jpg
+```
+
+## Notes on the hardware
+
+- **SD card speed** depends on how the data is handed over. Writing 4 MB: `fwrite` through
+  stdio 1.8 MB/s, `write()` from a cache-aligned PSRAM buffer 2.8 MB/s, `write()` of 32 KB
+  from an on-chip DMA buffer 5.2 MB/s. `storage/sd_writer.c` does the last.
+- **Sensor timing** must be programmed before the stream starts; changing the frame length
+  while streaming stalls the sensor. Exposure and gain, on the other hand, only take effect
+  when written while streaming.
+- **The sensor takes its output from the middle of the readout window.** The stock 800×1280
+  mode reads a 2110-pixel-wide window that is not centered on the sensor, so its picture is
+  off-center; `cam_ctrl.c` uses a window just larger than the output, centered.
+- **The hardware ISP accepts at most 1920 pixels per line**, so the full 2592-wide sensor
+  frame cannot go through it.
+- More measurements (memory bus limits, per-effect timings) are in `../docs/EFFECTS.md`.

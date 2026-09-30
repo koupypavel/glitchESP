@@ -18,6 +18,7 @@
 #include "frame_pipeline.h"
 #include "display.h"
 #include "settings.h"
+#include "cam_ctrl.h"
 
 static const char *TAG = "capture";
 
@@ -97,7 +98,7 @@ static void write_recipe_json(FILE *f, const char *file, uint32_t jpeg_bytes, in
             "  \"jpeg_quality\": %d,\n"
             "  \"frame_seq\": %lu,\n"
             "  \"uptime_ms\": %lld,\n"
-            "  \"camera\": { \"sensor\": \"OV5647\", \"mode\": \"RAW8_800x1280_50fps\", \"crop\": \"center 720x1280\" },\n"
+            "  \"camera\": { \"sensor\": \"OV5647\", \"mode\": \"%s\" },\n"
             "%s"
             "  \"zoom\": %.2f,\n"
             "  \"amount\": %.3f,\n"
@@ -105,7 +106,7 @@ static void write_recipe_json(FILE *f, const char *file, uint32_t jpeg_bytes, in
             "  \"frame_no\": %lu,\n"
             "  \"effects\": [",
             file, FP_OUT_W, FP_OUT_H, (unsigned long)jpeg_bytes, quality, (unsigned long)seq,
-            (long long)(esp_timer_get_time() / 1000), extra ? extra : "", (double)r->zoom,
+            (long long)(esp_timer_get_time() / 1000), cam_ctrl_mode_name(), extra ? extra : "", (double)r->zoom,
             (double)r->amount, (unsigned long)r->seed, (unsigned long)r->frame_no);
     int written = 0;
     for (int i = 0; i < r->chain.count; i++) {
@@ -411,6 +412,11 @@ void capture_video_on_frame(int fb_idx, uint32_t seq)
 void capture_set_serial_dump(bool enable)
 {
     s_c.serial_dump = enable;
+}
+
+bool capture_busy(void)
+{
+    return s_c.busy;
 }
 
 bool capture_sd_available(void)

@@ -9,6 +9,8 @@
 #include "esp_err.h"
 #include "linux/videodev2.h"
 #include "esp_video_device.h"
+#include "esp_video_ioctl.h"
+#include "esp_cam_sensor_types.h"
 #include "bsp/esp-bsp.h"
 
 #ifdef __cplusplus
@@ -148,6 +150,12 @@ esp_err_t app_video_register_frame_operation_cb(app_video_frame_operation_cb_t o
 
 /* glitchESP: when auto release is off, the frame callback owns each dequeued buffer until
  * app_video_release_frame() hands it back to the driver (call from the video task). */
+/* glitchESP: ask the stream task to stop the stream and exit, wait until it has. */
+esp_err_t app_video_stream_stop_wait(uint32_t timeout_ms);
+/* glitchESP: read / change the sensor mode (register table + frame size). Stream stopped;
+ * call app_video_set_bufs() again afterwards. `fmt` must stay valid while it is in use. */
+esp_err_t app_video_get_sensor_format(esp_cam_sensor_format_t *out);
+esp_err_t app_video_set_sensor_format(const esp_cam_sensor_format_t *fmt);
 void app_video_set_auto_release(bool enable);
 esp_err_t app_video_set_flip(bool vflip, bool hflip);   /* sensor mirror/flip, live */
 esp_err_t app_video_release_frame(uint8_t buf_index);

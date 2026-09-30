@@ -3,6 +3,7 @@ set(srcs
     "bench.c"
     "camera/app_video.c"
     "camera/ov5647_ctl.c"
+    "camera/cam_ctrl.c"
     "pipeline/auto_exposure.c"
     "pipeline/fx_parallel.c"
     "pipeline/frame_pipeline.c"

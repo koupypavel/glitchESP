@@ -60,6 +60,7 @@ uint32_t  capture_video_elapsed_ms(void);
 /* Pipeline hook: a frame buffer was just submitted to the display. Encodes it if idle. */
 void      capture_video_on_frame(int fb_idx, uint32_t seq);
 
+bool capture_busy(void);                     /* a still is being taken or saved */
 bool capture_sd_available(void);
 void capture_set_serial_dump(bool enable);   /* no SD card: dump JPEG as base64 over serial */
 uint32_t capture_get_count(void);
