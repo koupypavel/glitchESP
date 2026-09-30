@@ -9,6 +9,7 @@ set(srcs
     "pipeline/frame_pipeline.c"
     "storage/capture.c"
     "storage/avi_writer.c"
+    "storage/mp4_writer.c"
     "storage/sd_writer.c"
     "storage/sd_card.c"
     "ui/ui_live.c"

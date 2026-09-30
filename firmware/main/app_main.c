@@ -65,7 +65,8 @@ static void on_video(void *user)
         ui_live_on_video_started();
     } else {
         ESP_LOGW(TAG, "video start failed: %s", esp_err_to_name(ret));
-        ui_live_on_video_error(ret == ESP_ERR_NOT_FOUND ? "no SD card" : "cannot start video");
+        ui_live_on_video_error(ret == ESP_ERR_NOT_FOUND ? "no SD card" :
+                               ret == ESP_ERR_NO_MEM ? "no memory for H.264: restart the camera" : "cannot start video");
     }
 }
 

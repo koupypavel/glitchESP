@@ -95,7 +95,8 @@ static bool has_ext(const char *name, const char *ext)
     return n > e && strcasecmp(name + n - e, ext) == 0;
 }
 
-static bool is_video(const char *name) { return has_ext(name, ".avi"); }
+static bool is_video(const char *name) { return has_ext(name, ".avi") || has_ext(name, ".mp4"); }
+static bool is_h264(const char *name)  { return has_ext(name, ".mp4"); }
 
 static int by_name(const void *a, const void *b)
 {
@@ -111,7 +112,7 @@ static void scan(void)
     while ((e = readdir(d)) != NULL && s_g.count < MAX_ENTRIES) {
         const char *n = e->d_name;
         bool img = strncasecmp(n, "IMG_", 4) == 0 && has_ext(n, ".jpg");
-        bool vid = strncasecmp(n, "VID_", 4) == 0 && has_ext(n, ".avi");
+        bool vid = strncasecmp(n, "VID_", 4) == 0 && (has_ext(n, ".avi") || has_ext(n, ".mp4"));
         if ((!img && !vid) || strlen(n) >= NAME_LEN) continue;
         strcpy(s_g.entries[s_g.count++].name, n);
     }
@@ -339,7 +340,9 @@ static void show(int i)
     uint32_t w = 0, h = 0, stride = 0;
     const char *err = NULL;
     int64_t t0 = esp_timer_get_time();
-    if (video) {
+    if (is_h264(s_g.entries[i].name)) {
+        err = "H.264 video: play it on a computer";      /* this chip can encode H.264 but not decode it */
+    } else if (video) {
         err = open_video(path);
         if (!err && !video_frame(&w, &h, &stride)) err = "cannot read the first frame";
     } else if (size <= 0 || (size_t)size > FILE_MAX) {
@@ -353,7 +356,7 @@ static void show(int i)
 
     if (err) {
         show_black();
-        snprintf(info, sizeof(info), "%d / %d   %s", i + 1, s_g.count, s_g.entries[i].name);
+        snprintf(info, sizeof(info), "%d / %d   %s   %ld KB\n%s", i + 1, s_g.count, s_g.entries[i].name, size / 1024, look);
     } else {
         if (video) {                    /* frames are drawn straight from the decoder's buffer */
             s_g.cur = s_g.dec_buf;

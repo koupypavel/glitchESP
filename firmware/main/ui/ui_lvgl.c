@@ -15,7 +15,7 @@
 
 static const char *TAG = "ui_lvgl";
 
-#define DRAW_ROWS   40                     /* partial render buffer height */
+#define DRAW_ROWS       20      /* rows rendered per flush: 28.8 KB of on-chip RAM (was 40; the RAM is needed elsewhere) */
 #define MAX_RECTS   12                     /* UI regions to stamp per frame */
 
 typedef struct { int16_t x1, y1, x2, y2; } rect_t;

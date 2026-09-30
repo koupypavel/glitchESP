@@ -11,19 +11,30 @@ static const char *TAG = "sdw";
 
 #define SDW_BUF_BYTES   (32 * 1024)
 
+/* One buffer, allocated once and kept. Allocating it per file worked until the on-chip heap
+ * became fragmented: plenty of memory free, but no 32 KB block, and saving failed. */
+static uint8_t *s_buf;
+static bool s_buf_busy;
+
+esp_err_t sdw_prealloc(void)
+{
+    if (!s_buf) s_buf = heap_caps_aligned_alloc(64, SDW_BUF_BYTES, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    return s_buf ? ESP_OK : ESP_ERR_NO_MEM;
+}
+
 esp_err_t sdw_open(sd_writer_t *w, const char *path)
 {
     memset(w, 0, sizeof(*w));
     w->fd = -1;
-    w->buf = heap_caps_aligned_alloc(64, SDW_BUF_BYTES, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
-    if (!w->buf) return ESP_ERR_NO_MEM;
+    if (s_buf_busy || sdw_prealloc() != ESP_OK) return ESP_ERR_NO_MEM;     /* one file at a time */
+    w->buf = s_buf;
     w->fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (w->fd < 0) {
         ESP_LOGE(TAG, "open %s: %s", path, strerror(errno));
-        heap_caps_free(w->buf);
         w->buf = NULL;
         return ESP_FAIL;
     }
+    s_buf_busy = true;
     return ESP_OK;
 }
 
@@ -76,7 +87,7 @@ esp_err_t sdw_close(sd_writer_t *w)
     esp_err_t ret = w->failed ? ESP_FAIL : flush(w);
     if (close(w->fd) != 0) ret = ESP_FAIL;
     w->fd = -1;
-    heap_caps_free(w->buf);
     w->buf = NULL;
+    s_buf_busy = false;
     return ret;
 }

@@ -1,6 +1,7 @@
 /*
- * Capture: stills (hardware JPEG + JSON recipe sidecar) and Motion-JPEG AVI video, both
- * written to the microSD card by a dedicated task so the preview never stalls.
+ * Capture: stills (hardware JPEG + JSON recipe sidecar) and video (Motion-JPEG in an AVI,
+ * or H.264 in an MP4), written to the microSD card by a dedicated task so the preview
+ * never stalls.
  *
  * Stills snapshot the live frame into an encoder buffer. Video encodes straight from the
  * panel frame buffer that was just submitted (held until the encoder is done).
@@ -19,6 +20,9 @@ extern "C" {
 #define CAPTURE_DIR          "/sdcard/GLITCH"
 #define CAPTURE_JPEG_QUALITY 90
 #define VIDEO_JPEG_QUALITY   80
+#define VIDEO_H264_BITRATE   3000000          /* bits per second at VIDEO_H264_FPS frames per second */
+#define VIDEO_H264_FPS       12               /* what the encoder's rate control assumes */
+#define VIDEO_H264_GOP       24               /* a key frame every two seconds */
 #define CAPTURE_DUMP_QUALITY 55               /* stills sent over the serial port: keep them small */
 #define VIDEO_MAX_FRAMES     (30 * 60 * 20)   /* 30 min at 20 fps: index memory in PSRAM */
 

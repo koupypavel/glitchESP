@@ -29,7 +29,8 @@ typedef struct {
     bool failed;            /* a write came up short: everything after it is refused */
 } sd_writer_t;
 
-esp_err_t sdw_open(sd_writer_t *w, const char *path);
+esp_err_t sdw_prealloc(void);           /* get the buffer now, while a block that size is easy to find */
+esp_err_t sdw_open(sd_writer_t *w, const char *path);      /* one file at a time */
 esp_err_t sdw_write(sd_writer_t *w, const void *data, size_t len);      /* append */
 static inline uint32_t sdw_tell(const sd_writer_t *w) { return w->pos; }
 /* Overwrite bytes at the start of the file (headers that are only known at the end).

@@ -256,7 +256,7 @@ static void handle(char *line)
         cmd_sdbench();
     } else if (!strcmp(line, "help")) {
         printf("commands: photo | video | dump | stilldump | uidump | zoom [1..6] | fx <id> | amount <0..1> | bar 0/1 | edit [fx]|close | param <fx> <id> <value> | knob <steps>|click|reroll | idle [poke] | recipe | "
-               "preset list|save N|load N|clear N|panel 0/1 | settings 0/1 | gallery open|close|next|prev|play|look|delete | ae | eject | ls | get <file> | reg <hex> [hex] | tele <x0> <y0> | sdbench\n");
+               "preset list|save N|load N|clear N|panel 0/1 | settings 0/1 | set burst|h264|hires <n> | gallery open|close|next|prev|play|look|delete | ae | eject | ls | get <file> | reg <hex> [hex] | tele <x0> <y0> | sdbench\n");
     } else {
         printf("unknown command '%s' (try help)\n", line);
     }

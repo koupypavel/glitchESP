@@ -26,8 +26,11 @@ live, the shutter burns the effect into the saved photo or video, and every shot
   the effect chain, parameters, seed and frame number. At 1× zoom the sensor is re-read at
   full resolution for the shot and the effects are applied again at that size: 1088×1920
   (2.1 MP), about 0.7 s per photo. Zoomed in, the 720×1280 frame on screen is saved.
-- **Video**: Motion-JPEG AVI (`GLITCH/VID_nnnn.avi`) recorded from the same frames you see,
-  at roughly 12 fps.
+- **Burst**: 3, 5 or 10 photos per press, each with a new random seed, so one press gives
+  several variations of the same look.
+- **Video** recorded from the same frames you see, in one of two formats: Motion-JPEG AVI
+  (`GLITCH/VID_nnnn.avi`, every preview frame, about 2 MB/s, plays in the gallery) or
+  H.264 MP4 (`VID_nnnn.mp4`, about six times smaller, 7 to 9 fps, plays on a computer).
 - **Zoom** from 1× to 6×. 1× uses the sensor's 2×2 binned mode (widest view, least noise),
   1.5× shows sensor pixels one to one, beyond that the picture is enlarged digitally.
 - **Presets**: eight slots for effect recipes (effects, amount, seed), stored in flash;
@@ -35,8 +38,8 @@ live, the shutter burns the effect into the saved photo or video, and every shot
 - **Gallery**: browse the photos and play the videos on the card, delete them, or take the
   look of any picture back into the camera ("Use look" reads its recipe sidecar).
 - **Sounds**: a shutter click and recording beeps through the board's speaker connector.
-- **Settings** for mirror, flip, photo size, idle dimming, sound and preview quality, stored
-  in flash.
+- **Settings** for mirror, flip, photo size, idle dimming, sound, burst, video format and
+  preview quality, stored in flash.
 
 ## Controls
 
@@ -50,8 +53,8 @@ live, the shutter burns the effect into the saved photo or video, and every shot
 | Presets button (list) | Eight slots: the disk icon stores the current look, tapping a row recalls it |
 | Gallery button (picture) | Browse with the arrows or by swiping; play, "Use look", delete (tap twice), close |
 | + / − (right edge) | Zoom in and out |
-| Gear button | Settings: mirror, flip, full-resolution photos, idle dimming, shutter sound, preview quality |
-| BOOT button, short press | Take a photo (in the gallery: back to the camera) |
+| Gear button | Settings: mirror, flip, full-resolution photos, idle dimming, shutter sound, burst, video format, preview quality |
+| BOOT button, short press | Take a photo, or a burst if one is set (in the gallery: back to the camera) |
 | BOOT button, hold 0.7 s | Start or stop video recording |
 
 ### Optional wired controls
@@ -123,10 +126,9 @@ what was learned about performance on the ESP32-P4.
 ## Status
 
 Working on the device: preview, all fifteen effects on both cores, parameter editing,
-presets, zoom, settings, photos (including full-resolution stills) and video saved to the
-card, and the gallery. The wired controls on the header are implemented but untested.
-Still open from the original plan: a battery indicator and a smaller video format using
-the P4's H.264 encoder.
+presets, zoom, settings, photos (including full-resolution stills and bursts) and video
+(Motion-JPEG and H.264) saved to the card, and the gallery. The wired controls on the header
+are implemented but untested. Still open from the original plan: a battery indicator.
 
 ## License
 

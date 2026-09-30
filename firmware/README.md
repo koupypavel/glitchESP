@@ -27,7 +27,7 @@ profile that matches your board (`esptool.py chip_id` prints the revision).
 | `main/effects/` | The effect engine and the effects (plain C, also built on the PC by `tools/fxlab`) |
 | `main/display/` | The panel's three frame buffers: acquire, submit, hold for the video encoder |
 | `main/ui/` | LVGL widgets drawn into a separate layer that is stamped onto each frame; the gallery |
-| `main/storage/` | Stills (hardware JPEG + `.json` recipe), Motion-JPEG AVI, fast SD writer |
+| `main/storage/` | Stills (hardware JPEG + `.json` recipe), Motion-JPEG AVI and H.264 MP4 video, fast SD writer |
 | `main/input/` | BOOT button, plus optional buttons and a rotary encoder on the header (pins in `buttons.h`) |
 | `main/system/` | Settings and presets in NVS, sounds, serial remote |
 | `main/bench.c` | On-device benchmark, enabled with `GLITCH_BENCH` in `app_main.c` |
@@ -80,6 +80,11 @@ block of PSRAM that doubles as the two 4.2 MB buffers this needs. Exposure time,
 the preview so the photo matches it. Effects that need the previous frame (tracers) have no
 history at that size, so with those the on-screen frame is saved instead.
 
+**Burst** (settings: off, 3, 5 or 10 photos) repeats the shot with a new random seed each
+time and puts the original seed back afterwards. Full-resolution bursts stay in the still
+mode between shots, so each further photo takes about a third of a second; zoomed in, the
+shots are taken from the preview one after another.
+
 ## Editing parameters
 
 The pencil button opens a sheet over the control bar (`ui/ui_editor.c`) with one tab per
@@ -101,7 +106,8 @@ reorder effects (`system/presets.c`).
 The picture button opens the gallery (`ui/gallery.c`). It stops the camera and borrows its
 10 MB buffer block: the hardware JPEG decoder decodes into it (anything up to 1088x1920),
 the result is scaled to the screen once and then redrawn ten times a second so the buttons
-stay live. Videos are read frame by frame from the AVI and play at their recorded rate.
+stay live. Videos are read frame by frame from the AVI and play at their recorded rate;
+H.264 recordings are listed but cannot be played (the chip has no H.264 decoder).
 The info line shows the recipe from the `.json` sidecar; "Use look" makes that recipe the
 current effect setup and returns to the camera. Delete needs two taps. Closing the gallery
 (or pressing BOOT) reprograms the sensor and restarts the preview.
@@ -109,10 +115,24 @@ current effect setup and returns to the camera. Delete needs two taps. Closing t
 ## Video
 
 Hold BOOT for 0.7 s to start recording, hold again to stop. Frames are the same 720×1280
-frames you see (effects burned in), JPEG quality 80, written as a Motion-JPEG AVI that any
-player opens. About 12 fps without effects (the JPEG encoder is the limit), 1 MB/s on the
-card. While recording, the control bar is not drawn, so the video stays clean. The frame
-rate in the AVI header is measured at stop, and a `.json` sidecar records the recipe.
+frames you see (effects burned in). While recording, the control bar is not drawn, so the
+video stays clean. The frame rate written into the file is measured at stop, and a `.json`
+sidecar records the recipe. The format is chosen in the settings:
+
+| | Motion-JPEG (default) | H.264 |
+|---|---|---|
+| File | `VID_nnnn.avi` | `VID_nnnn.mp4` |
+| Frame rate | every preview frame: 20 fps plain, about 14 fps with effects | every second frame: 9 fps plain, about 7 fps with effects |
+| Size | about 2 MB/s (JPEG quality 80) | about 0.3 MB/s (3 Mbit/s target, a key frame every 24 frames) |
+| Plays in the gallery | yes | no |
+
+H.264 is slower although the encoder itself needs under 30 ms per frame: it only accepts
+YUV 4:2:0, and converting the RGB565 frame takes the pixel-processing accelerator (PPA)
+another 60 to 70 ms. Doing that conversion on the CPU cost the preview more than it gained.
+`storage/mp4_writer.c` writes the MP4 itself: the frames go into one `mdat` box as they
+arrive and the index (`moov`) follows when recording stops, so a recording that is cut off
+by a power loss has no index and will not play. The encoder needs a 52 KB block of on-chip
+RAM, which is only reliably available at start-up, so it is created then and kept.
 
 ## Serial remote
 
@@ -122,7 +142,7 @@ checked from a PC:
 ```
 photo | video | dump | stilldump | uidump | zoom [1..6] | fx <id> | amount <0..1>
 bar 0/1 | knob <steps>|click|reroll | idle [poke] | eject | edit [fx]|close | param <fx> <param> <value>
-recipe | preset list|save N|load N|clear N|panel 0/1 | settings 0/1 | ae
+recipe | preset list|save N|load N|clear N|panel 0/1 | settings 0/1 | set burst|h264|hires <n> | ae
 gallery open|close|next|prev|play|look|delete
 ls | get <file> | reg <hex> [hex] | tele <x0> <y0> | sdbench | help
 ```

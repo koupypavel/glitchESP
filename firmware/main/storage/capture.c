@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <errno.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -14,11 +15,16 @@
 #include "mbedtls/base64.h"
 #include "capture.h"
 #include "avi_writer.h"
+#include "mp4_writer.h"
+#include "esp_h264_enc_single.h"
+#include "esp_h264_enc_single_hw.h"
+#include "esp_heap_caps.h"
 #include "sd_writer.h"
 #include "frame_pipeline.h"
 #include "display.h"
 #include "settings.h"
 #include "cam_ctrl.h"
+#include "driver/ppa.h"
 #include "sd_card.h"
 
 static const char *TAG = "capture";
@@ -26,6 +32,10 @@ static const char *TAG = "capture";
 #define NVS_NS          "glitch"
 #define NVS_KEY_COUNT   "shot_count"
 #define NVS_KEY_VCOUNT  "vid_count"
+/* Above the effect worker (12) and the UI (13): the task mostly waits for the encoders and
+ * the card, and the little CPU work in between (finding NAL units, filling the write
+ * buffer) took a hundred milliseconds per frame when it had to queue behind them. */
+#define CAPTURE_TASK_PRIO 14
 #define JPEG_OUT_MAX    (2 * 1024 * 1024)
 
 typedef enum { JOB_STILL, JOB_VIDEO_FRAME, JOB_VIDEO_STOP, JOB_SD_CHECK } job_type_t;
@@ -65,6 +75,10 @@ typedef struct {
     uint32_t burst_seed0;                  /* seed to go back to afterwards */
     capture_shot_cb_t shot_cb;
     avi_writer_t avi;
+    bool rec_h264;                         /* this recording is H.264 in an MP4 file */
+    mp4_writer_t mp4;
+    esp_h264_enc_handle_t h264;            /* created at start-up and kept */       
+    uint32_t h264_us[3];                   /* time spent converting, encoding, writing (this recording) */
     video_done_cb_t vdone_cb;
     void *vuser;
     uint32_t vcount;
@@ -259,6 +273,7 @@ static void on_snapshot(const fp_snapshot_t *snap, void *user)
 static void dump_jpeg_serial(uint32_t out_size)
 {
     unsigned char line[80];
+    vTaskPrioritySet(NULL, 3);                  /* a long print must not hold up the UI and the effects */
     printf("JPEG_B64_BEGIN %lu\n", (unsigned long)out_size);
     for (uint32_t off = 0; off < out_size; off += 57) {
         size_t n = out_size - off < 57 ? out_size - off : 57, olen = 0;
@@ -268,6 +283,7 @@ static void dump_jpeg_serial(uint32_t out_size)
         if ((off / 57) % 64 == 0) vTaskDelay(1);
     }
     printf("JPEG_B64_END\n");
+    vTaskPrioritySet(NULL, CAPTURE_TASK_PRIO);
 }
 
 static void do_still(void)
@@ -319,17 +335,125 @@ static void do_still(void)
     if (s_c.done_cb) s_c.done_cb(&res, s_c.user);
 }
 
+/*
+ * H.264: the hardware encoder takes one picture format only, a packed YUV 4:2:0 in which
+ * rows alternate "U Y Y U Y Y ..." and "V Y Y V Y Y ..." (one U and one V per 2x2 pixels).
+ * The chip's pixel-processing accelerator (PPA) converts a frame buffer to it in hardware.
+ * Doing it on the CPU was tried first: 55 ms on both cores inside the camera task, or
+ * 0.4 to 0.6 s in the capture task (which shares core 0 with the effect worker); either
+ * way the preview or the recording suffered. BT.601, video range.
+ */
+static ppa_client_handle_t s_ppa;
+
+static esp_err_t rgb565_to_h264_yuv(const uint8_t *fb)
+{
+    if (!s_ppa) {
+        ppa_client_config_t client = { .oper_type = PPA_OPERATION_SRM, .max_pending_trans_num = 1 };
+        ESP_RETURN_ON_ERROR(ppa_register_client(&client, &s_ppa), TAG, "PPA client");
+    }
+    ppa_srm_oper_config_t cfg = {
+        .in = {
+            .buffer = fb, .pic_w = FP_OUT_W, .pic_h = FP_OUT_H, .block_w = FP_OUT_W, .block_h = FP_OUT_H,
+            .srm_cm = PPA_SRM_COLOR_MODE_RGB565,
+        },
+        .out = {
+            .buffer = s_c.raw_buf, .buffer_size = (uint32_t)s_c.raw_len, .pic_w = FP_OUT_W, .pic_h = FP_OUT_H,
+            .srm_cm = PPA_SRM_COLOR_MODE_YUV420,
+            .yuv_range = PPA_COLOR_RANGE_LIMIT, .yuv_std = PPA_COLOR_CONV_STD_RGB_YUV_BT601,
+        },
+        .rotation_angle = PPA_SRM_ROTATION_ANGLE_0,
+        .scale_x = 1.0f, .scale_y = 1.0f,
+        .mode = PPA_TRANS_MODE_BLOCKING,
+    };
+    return ppa_do_scale_rotate_mirror(s_ppa, &cfg);
+}
+
+/*
+ * The encoder needs one 52 KB block of on-chip RAM (plus 1.4 MB of PSRAM). After the
+ * firmware has run for a while the on-chip heap has enough free memory in total but no
+ * single block that large, so the encoder is created once, during start-up, and kept, also
+ * while MJPEG is the selected format. Creating it only when the format is switched to
+ * H.264 was tried: it failed with "no memory" as soon as the camera had run for a minute.
+ */
+static void h264_create(void)
+{
+    if (s_c.h264) return;
+    esp_h264_enc_cfg_hw_t cfg = {
+        .pic_type = ESP_H264_RAW_FMT_O_UYY_E_VYY,
+        .gop = VIDEO_H264_GOP,
+        .fps = VIDEO_H264_FPS,
+        .res = { .width = FP_OUT_W, .height = FP_OUT_H },
+        .rc = { .bitrate = VIDEO_H264_BITRATE, .qp_min = 22, .qp_max = 42 },
+    };
+    if (esp_h264_enc_hw_new(&cfg, &s_c.h264) != ESP_H264_ERR_OK) {
+        s_c.h264 = NULL;
+        ESP_LOGW(TAG, "H.264 encoder: no memory (on-chip RAM %u KB free, largest block %u KB)",
+                 (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+                 (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) / 1024));
+    } else {
+        ESP_LOGI(TAG, "H.264 encoder ready (on-chip RAM %u KB free, PSRAM %u KB free)",
+                 (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+                 (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
+    }
+}
+
+static esp_err_t h264_start(void)
+{
+    h264_create();                                          /* normally there since start-up */
+    if (!s_c.h264) return ESP_ERR_NO_MEM;
+    s_c.h264_us[0] = s_c.h264_us[1] = s_c.h264_us[2] = 0;
+    return esp_h264_enc_open(s_c.h264) == ESP_H264_ERR_OK ? ESP_OK : ESP_FAIL;
+}
+
+static void h264_stop(void)
+{
+    if (s_c.h264) esp_h264_enc_close(s_c.h264);
+}
+
+/* One frame buffer through the converter and the H.264 encoder into the MP4. The still
+ * buffers are free while recording, so they serve as the YUV picture and the bit stream. */
+static esp_err_t h264_frame(const uint8_t *fb, uint32_t pts_ms)
+{
+    int64_t t0 = esp_timer_get_time();
+    esp_err_t conv = rgb565_to_h264_yuv(fb);
+    int64_t t1 = esp_timer_get_time();
+    if (conv != ESP_OK) {
+        ESP_LOGE(TAG, "colour conversion failed: %s", esp_err_to_name(conv));
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    s_c.h264_us[0] += (uint32_t)(t1 - t0);
+    esp_h264_enc_in_frame_t in = { .raw_data = { s_c.raw_buf, FP_OUT_W * FP_OUT_H * 3 / 2 }, .pts = pts_ms };
+    esp_h264_enc_out_frame_t out = { .raw_data = { s_c.jpg_buf, (uint32_t)s_c.jpg_len } };
+    esp_h264_err_t e = esp_h264_enc_process(s_c.h264, &in, &out);
+    int64_t t2 = esp_timer_get_time();
+    if (e != ESP_H264_ERR_OK) {
+        ESP_LOGE(TAG, "H.264 encode failed: %d", (int)e);
+        return ESP_ERR_INVALID_RESPONSE;                    /* skip the frame, keep recording */
+    }
+    esp_err_t ret = mp4_write_frame(&s_c.mp4, out.raw_data.buffer, out.length);
+    s_c.h264_us[1] += (uint32_t)(t2 - t1);
+    s_c.h264_us[2] += (uint32_t)(esp_timer_get_time() - t2);
+    return ret;
+}
+
 static void do_video_frame(const job_t *j)
 {
-    if (s_c.rec_active && s_c.avi.open) {
+    if (s_c.rec_active && (s_c.avi.open || s_c.mp4.open)) {
         uint32_t out_size = 0;
         const uint8_t *fb = (const uint8_t *)display_fb(j->fb_idx);
-        esp_err_t ret = encode(fb, VIDEO_JPEG_QUALITY, &out_size);
+        esp_err_t ret, wr = ESP_OK;
+        if (s_c.rec_h264) {
+            ret = h264_frame(fb, (uint32_t)((esp_timer_get_time() - s_c.v_t0) / 1000));
+            if (ret == ESP_FAIL) { wr = ESP_FAIL; ret = ESP_OK; }      /* the card, not the encoder */
+        } else {
+            ret = encode(fb, VIDEO_JPEG_QUALITY, &out_size);
+            if (ret == ESP_OK) wr = avi_write_frame(&s_c.avi, s_c.jpg_buf, out_size);
+        }
         if (ret == ESP_OK) {
-            if (avi_write_frame(&s_c.avi, s_c.jpg_buf, out_size) == ESP_OK) {
+            if (wr == ESP_OK) {
                 s_c.vframes++;
             } else {
-                ESP_LOGE(TAG, "avi write failed, stopping");
+                ESP_LOGE(TAG, "video write failed, stopping");
                 s_c.rec_active = false;
                 s_c.rec_failed = true;
                 job_t stop = { .type = JOB_VIDEO_STOP };     /* close the file and report */
@@ -339,7 +463,7 @@ static void do_video_frame(const job_t *j)
             ESP_LOGE(TAG, "video encode failed: %s", esp_err_to_name(ret));
         }
     }
-    display_release_fb(j->fb_idx);
+    if (j->fb_idx >= 0) display_release_fb(j->fb_idx);
     s_c.rec_encoding = false;
 }
 
@@ -349,12 +473,18 @@ static void do_video_stop(void)
     strlcpy(res.path, s_c.vpath, sizeof(res.path));
     res.frames = s_c.vframes;
     res.dropped = s_c.vdropped;
-    if (s_c.avi.open) {
+    if (s_c.avi.open || s_c.mp4.open) {
         uint32_t dur = 0;
-        esp_err_t ret = avi_close(&s_c.avi, &dur);
+        esp_err_t ret = s_c.rec_h264 ? mp4_close(&s_c.mp4, &dur) : avi_close(&s_c.avi, &dur);
+        if (s_c.rec_h264) {
+            h264_stop();
+            uint32_t n = s_c.vframes ? s_c.vframes : 1;
+            ESP_LOGI(TAG, "H.264 per frame: convert %lu ms, encode %lu ms, write %lu ms", (unsigned long)(s_c.h264_us[0] / n / 1000),
+                     (unsigned long)(s_c.h264_us[1] / n / 1000), (unsigned long)(s_c.h264_us[2] / n / 1000));
+        }
         res.duration_ms = dur;
         res.ok = ret == ESP_OK && s_c.vframes > 0;
-        if (!res.ok) res.error = "avi finalize failed";
+        if (!res.ok) res.error = "could not finish the video file";
         if (res.ok) {
             char extra[64];
             snprintf(extra, sizeof(extra), "  \"frames\": %lu,\n  \"duration_ms\": %lu,\n",
@@ -409,16 +539,21 @@ esp_err_t capture_init(bool sd_mounted, capture_done_cb_t done_cb, void *user)
     jpeg_encode_engine_cfg_t eng = { .intr_priority = 0, .timeout_ms = 2000 };
     ESP_RETURN_ON_ERROR(jpeg_new_encoder_engine(&eng, &s_c.enc), TAG, "encoder engine");
 
-    jpeg_encode_memory_alloc_cfg_t in_cfg = { .buffer_direction = JPEG_ENC_ALLOC_INPUT_BUFFER };
+    /* Both as "output" buffers, which makes them cache-line aligned: the picture buffer is
+     * also what the colour converter writes into when recording H.264. */
     jpeg_encode_memory_alloc_cfg_t out_cfg = { .buffer_direction = JPEG_ENC_ALLOC_OUTPUT_BUFFER };
-    s_c.raw_buf = jpeg_alloc_encoder_mem(FP_OUT_BYTES, &in_cfg, &s_c.raw_len);
+    s_c.raw_buf = jpeg_alloc_encoder_mem(FP_OUT_BYTES, &out_cfg, &s_c.raw_len);
     s_c.jpg_buf = jpeg_alloc_encoder_mem(JPEG_OUT_MAX, &out_cfg, &s_c.jpg_len);
     ESP_RETURN_ON_FALSE(s_c.raw_buf && s_c.jpg_buf, ESP_ERR_NO_MEM, TAG, "encoder buffers");
+
+    /* on-chip RAM that must be one block: claim it before the heap gets fragmented */
+    sdw_prealloc();
+    h264_create();
 
     s_c.jobs = xQueueCreate(4, sizeof(job_t));
     ESP_RETURN_ON_FALSE(s_c.jobs, ESP_ERR_NO_MEM, TAG, "queue");
 
-    BaseType_t ok = xTaskCreatePinnedToCore(capture_task, "capture", 8 * 1024, NULL, 3, NULL, 0);
+    BaseType_t ok = xTaskCreatePinnedToCore(capture_task, "capture", 8 * 1024, NULL, CAPTURE_TASK_PRIO, NULL, 0);
     ESP_RETURN_ON_FALSE(ok == pdPASS, ESP_FAIL, TAG, "task");
 
     /* self-test: the video path encodes straight from a panel frame buffer */
@@ -543,8 +678,19 @@ esp_err_t capture_video_start(video_done_cb_t done_cb, void *user)
     if (s_c.rec_active || s_c.busy) return ESP_ERR_INVALID_STATE;
     if (!sd_ensure()) return ESP_ERR_NOT_FOUND;
     uint32_t n = s_c.vcount + 1;
-    snprintf(s_c.vpath, sizeof(s_c.vpath), CAPTURE_DIR "/VID_%04lu.avi", (unsigned long)n);
-    ESP_RETURN_ON_ERROR(avi_open(&s_c.avi, s_c.vpath, FP_OUT_W, FP_OUT_H, VIDEO_MAX_FRAMES), TAG, "avi open");
+    s_c.rec_h264 = settings_get()->video_h264;
+    snprintf(s_c.vpath, sizeof(s_c.vpath), CAPTURE_DIR "/VID_%04lu.%s", (unsigned long)n, s_c.rec_h264 ? "mp4" : "avi");
+    if (s_c.rec_h264) {
+        ESP_RETURN_ON_ERROR(mp4_open(&s_c.mp4, s_c.vpath, FP_OUT_W, FP_OUT_H, VIDEO_MAX_FRAMES), TAG, "mp4 open");
+        if (h264_start() != ESP_OK) {
+            uint32_t dur;
+            mp4_close(&s_c.mp4, &dur);
+            unlink(s_c.vpath);
+            return ESP_ERR_NO_MEM;
+        }
+    } else {
+        ESP_RETURN_ON_ERROR(avi_open(&s_c.avi, s_c.vpath, FP_OUT_W, FP_OUT_H, VIDEO_MAX_FRAMES), TAG, "avi open");
+    }
     frame_pipeline_get_recipe(&s_c.recipe);
     s_c.vcount = n;
     nvs_store_u32(NVS_KEY_VCOUNT, n);
@@ -585,7 +731,7 @@ void capture_video_on_frame(int fb_idx, uint32_t seq)
     job_t j = { .type = JOB_VIDEO_FRAME, .fb_idx = fb_idx, .seq = seq };
     s_c.rec_encoding = true;
     if (xQueueSend(s_c.jobs, &j, 0) != pdTRUE) {
-        display_release_fb(fb_idx);
+        if (fb_idx >= 0) display_release_fb(fb_idx);
         s_c.rec_encoding = false;
         s_c.vdropped++;
     }
