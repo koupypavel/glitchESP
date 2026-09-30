@@ -61,7 +61,7 @@ const char *cam_ctrl_mode_name(void);      /* for the recipe sidecar */
  * `dump` sends the JPEG over the serial port instead of saving it.
  */
 bool cam_ctrl_still_available(void);
-esp_err_t cam_ctrl_take_still(bool dump);
+esp_err_t cam_ctrl_take_still(bool dump, int shots);   /* shots > 1: a burst, each with a new seed */
 
 /*
  * Stop the camera and borrow its frame-buffer block (about 10 MB of cache-line-aligned

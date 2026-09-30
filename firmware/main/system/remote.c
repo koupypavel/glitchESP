@@ -24,6 +24,7 @@
 #include "cam_ctrl.h"
 #include "auto_exposure.h"
 #include "presets.h"
+#include "settings.h"
 #include "gallery.h"
 
 static const char *TAG = "remote";
@@ -144,7 +145,7 @@ static void handle(char *line)
         esp_err_t r = capture_trigger_dump();
         if (r != ESP_OK) printf("dump: %s\n", esp_err_to_name(r));
     } else if (!strcmp(line, "stilldump")) {
-        esp_err_t r = cam_ctrl_take_still(true);
+        esp_err_t r = cam_ctrl_take_still(true, 1);
         if (r != ESP_OK) printf("stilldump: %s\n", esp_err_to_name(r));
     } else if (!strcmp(line, "uidump")) {
         esp_err_t r = capture_trigger_screenshot();
@@ -171,6 +172,18 @@ static void handle(char *line)
         }
     } else if (!strcmp(line, "bar")) {
         ui_live_set_bar_hidden(atoi(arg) == 0);         /* bar 1 = show, bar 0 = hide */
+    } else if (!strcmp(line, "set")) {
+        /* set burst <1|3|5|10> | set h264 <0|1> | set hires <0|1>: settings, stored like from the panel */
+        char key[12] = "";
+        int v = 0;
+        settings_t cfg = *settings_get();
+        if (sscanf(arg, "%11s %d", key, &v) == 2) {
+            if (!strcmp(key, "burst"))      cfg.burst = (uint8_t)(v < 1 ? 1 : (v > 10 ? 10 : v));
+            else if (!strcmp(key, "h264"))  cfg.video_h264 = v != 0;
+            else if (!strcmp(key, "hires")) cfg.photo_hires = v != 0;
+            settings_set(&cfg);
+        }
+        printf("settings: burst %u, h264 %d, hires %d\n", cfg.burst, cfg.video_h264, cfg.photo_hires);
     } else if (!strcmp(line, "edit")) {
         /* edit [fx id] | edit close: the parameter editor */
         bool open = strcmp(arg, "close") != 0;

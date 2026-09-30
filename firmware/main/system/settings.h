@@ -17,6 +17,8 @@ typedef struct {
     bool bar_hidden;      /* the control bar is tucked away */
     bool idle_dim;        /* turn the backlight down after a minute without input */
     bool sound;           /* shutter click and recording beeps */
+    uint8_t burst;        /* photos per press: 1, 3, 5 or 10 */
+    bool video_h264;      /* record H.264 in an MP4 file instead of Motion-JPEG in an AVI */
 } settings_t;
 
 esp_err_t settings_init(void);            /* load from NVS (defaults if absent) */

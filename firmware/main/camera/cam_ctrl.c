@@ -7,6 +7,7 @@
 #include "esp_check.h"
 #include "esp_timer.h"
 #include "esp_cache.h"
+#include "esp_random.h"
 #include "ov5647_types.h"
 #include "cam_ctrl.h"
 #include "app_video.h"
@@ -89,6 +90,7 @@ static const ov5647_reginfo_t k_still[] = {
 #define STILL_BUFS          2
 #define STILL_SET_FRAME     2       /* exposure/gain are written once this frame has arrived */
 #define STILL_KEEP_FRAME    7       /* ...and this one is the photo */
+#define STILL_KEEP_NEXT     3       /* later photos of a burst: nothing has to settle any more */
 
 enum { MODE_STILL = CAM_MODE_COUNT, MODE_TOTAL };
 
@@ -123,6 +125,8 @@ static struct {
     volatile bool still_request, still_dump;
     volatile int still_frames;
     volatile int still_kept;        /* buffer index of the photo, -1 until it arrives */
+    volatile int still_keep_at;     /* which frame of the run to keep */
+    volatile int still_shots;       /* photos requested by this press (burst) */
     uint32_t still_expo, still_gain;
     uint8_t still_wb[6];            /* white-balance gains of the preview (R, G, B; 0x400 = 1x) */
     bool still_wb_valid;
@@ -237,7 +241,7 @@ static void still_frame_cb(uint8_t *buf, uint8_t idx, uint32_t w, uint32_t h, si
             ov5647_ctl_write(OV5647_REG_WB_CTRL, OV5647_WB_MANUAL_EN);
         }
     }
-    if (n == STILL_KEEP_FRAME && s_c.still_kept < 0) {
+    if (n == s_c.still_keep_at && s_c.still_kept < 0) {
         s_c.still_kept = idx;                           /* not released: the driver cannot overwrite it */
         xSemaphoreGive(s_c.still_done);
         return;
@@ -256,7 +260,7 @@ static void take_still(bool dump)
 
     if (app_video_stream_stop_wait(2000) != ESP_OK) {
         ESP_LOGE(TAG, "stream did not stop");
-        capture_finish_external(NULL, 0, 0, &recipe, dump);
+        capture_finish_external(NULL, 0, 0, &recipe, dump, false);
         return;
     }
 
@@ -273,39 +277,52 @@ static void take_still(bool dump)
     if (expo < 8) expo = 8;
     s_c.still_expo = expo;
     s_c.still_gain = gain;
-    s_c.still_frames = 0;
-    s_c.still_kept = -1;
-    xSemaphoreTake(s_c.still_done, 0);
-
-    const uint8_t *result = NULL;
-    esp_err_t ret = program(MODE_STILL, STILL_BUFS, STILL_BYTES);
-    if (ret == ESP_OK) {
-        ov5647_ctl_set_manual(true, true);
-        app_video_register_frame_operation_cb(still_frame_cb);
-        app_video_stream_task_start(s_c.fd, 1, NULL);
-        bool got = xSemaphoreTake(s_c.still_done, pdMS_TO_TICKS(3000)) == pdTRUE;
-        app_video_stream_stop_wait(2000);
-        app_video_register_frame_operation_cb(frame_pipeline_on_camera_frame);
-        if (got) {
-            int64_t t1 = esp_timer_get_time();
-            fx_frame_t a = { (uint16_t *)(s_c.block + (size_t)s_c.still_kept * STILL_BYTES), STILL_W, STILL_H, STILL_W };
-            fx_frame_t b = { (uint16_t *)(s_c.block + (size_t)(1 - s_c.still_kept) * STILL_BYTES), STILL_W, STILL_H, STILL_W };
-            fx_ctx_t ctx = { .seed = recipe.seed, .frame_no = recipe.frame_no, .prev = NULL };
-            fx_frame_t *out = fx_chain_apply_pingpong(&recipe.chain, &a, &b, &ctx);
-            /* the JPEG encoder reads memory, not this core's cache */
-            esp_cache_msync(out->px, STILL_BYTES, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
-            result = (const uint8_t *)out->px;
-            ESP_LOGI(TAG, "still: %d frames, exposure %lu lines, gain %lu/16, effects %lld ms",
-                     s_c.still_frames, (unsigned long)expo, (unsigned long)gain,
-                     (long long)((esp_timer_get_time() - t1) / 1000));
-        } else {
-            ESP_LOGE(TAG, "still: no frame (%d arrived)", s_c.still_frames);
-        }
-    } else {
-        ESP_LOGE(TAG, "still mode failed: %s", esp_err_to_name(ret));
-    }
     recipe.zoom = 1.0f;
-    capture_finish_external(result, STILL_W, STILL_H, &recipe, dump);
+
+    esp_err_t ret = program(MODE_STILL, STILL_BUFS, STILL_BYTES);
+    if (ret != ESP_OK) ESP_LOGE(TAG, "still mode failed: %s", esp_err_to_name(ret));
+    app_video_register_frame_operation_cb(still_frame_cb);
+
+    /* One photo per pass. A burst stays in this sensor mode: the stream is only stopped
+     * while a frame is processed, because the effect chain needs both buffers. */
+    int shots = s_c.still_shots < 1 ? 1 : s_c.still_shots;
+    for (int shot = 0; shot < shots; shot++) {
+        const uint8_t *result = NULL;
+        if (ret == ESP_OK) {
+            if (shot > 0) {
+                recipe.seed = esp_random();                 /* every burst photo glitches differently */
+                capture_notify_shot();
+                const void *bufs[STILL_BUFS] = { s_c.block, s_c.block + STILL_BYTES };
+                app_video_set_bufs(s_c.fd, STILL_BUFS, bufs);
+            } else {
+                ov5647_ctl_set_manual(true, true);
+            }
+            s_c.still_frames = 0;
+            s_c.still_kept = -1;
+            s_c.still_keep_at = shot == 0 ? STILL_KEEP_FRAME : STILL_KEEP_NEXT;   /* exposure is settled by then */
+            xSemaphoreTake(s_c.still_done, 0);
+            app_video_stream_task_start(s_c.fd, 1, NULL);
+            bool got = xSemaphoreTake(s_c.still_done, pdMS_TO_TICKS(3000)) == pdTRUE;
+            app_video_stream_stop_wait(2000);
+            if (got) {
+                int64_t t1 = esp_timer_get_time();
+                fx_frame_t a = { (uint16_t *)(s_c.block + (size_t)s_c.still_kept * STILL_BYTES), STILL_W, STILL_H, STILL_W };
+                fx_frame_t b = { (uint16_t *)(s_c.block + (size_t)(1 - s_c.still_kept) * STILL_BYTES), STILL_W, STILL_H, STILL_W };
+                fx_ctx_t ctx = { .seed = recipe.seed, .frame_no = recipe.frame_no, .prev = NULL };
+                fx_frame_t *out = fx_chain_apply_pingpong(&recipe.chain, &a, &b, &ctx);
+                /* the JPEG encoder reads memory, not this core's cache */
+                esp_cache_msync(out->px, STILL_BYTES, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+                result = (const uint8_t *)out->px;
+                ESP_LOGI(TAG, "still %d/%d: %d frames, exposure %lu lines, gain %lu/16, effects %lld ms", shot + 1, shots,
+                         s_c.still_frames, (unsigned long)expo, (unsigned long)gain,
+                         (long long)((esp_timer_get_time() - t1) / 1000));
+            } else {
+                ESP_LOGE(TAG, "still: no frame (%d arrived)", s_c.still_frames);
+            }
+        }
+        if (!capture_finish_external(result, STILL_W, STILL_H, &recipe, dump, shot + 1 < shots)) break;
+    }
+    app_video_register_frame_operation_cb(frame_pipeline_on_camera_frame);
 
     /* back to the preview */
     apply_mode(s_c.mode, s_c.mode);
@@ -401,11 +418,12 @@ bool cam_ctrl_still_available(void)
            !frame_pipeline_chain_is_temporal();
 }
 
-esp_err_t cam_ctrl_take_still(bool dump)
+esp_err_t cam_ctrl_take_still(bool dump, int shots)
 {
     if (!cam_ctrl_still_available() || s_c.still_request) return ESP_ERR_INVALID_STATE;
     ESP_RETURN_ON_ERROR(capture_begin_external(), TAG, "capture busy");
     s_c.still_dump = dump;
+    s_c.still_shots = shots;
     s_c.still_request = true;
     xTaskNotifyGive(s_c.task);
     return ESP_OK;

@@ -80,14 +80,22 @@ static void on_shutter(void *user)
     /* At zoom 1 the sensor can be re-read at full resolution for the photo (about a second);
      * otherwise the frame on screen is saved. */
     esp_err_t ret = ESP_ERR_INVALID_STATE;
-    if (settings_get()->photo_hires && cam_ctrl_still_available()) ret = cam_ctrl_take_still(false);
-    if (ret != ESP_OK) ret = capture_trigger();
+    int shots = settings_get()->burst;
+    if (settings_get()->photo_hires && cam_ctrl_still_available()) ret = cam_ctrl_take_still(false, shots);
+    if (ret != ESP_OK) ret = capture_trigger_burst(shots);
     if (ret == ESP_OK) {
         sound_play(SOUND_SHUTTER);
         ui_live_on_capture_started();
     } else {
         ESP_LOGW(TAG, "shutter ignored: %s", esp_err_to_name(ret));
     }
+}
+
+/* every further photo of a burst: click and flash again */
+static void on_burst_shot(void)
+{
+    sound_play(SOUND_SHUTTER);
+    ui_lvgl_flash(2);
 }
 
 /* ---- header controls (see input/buttons.h) ---- */
@@ -202,6 +210,7 @@ void app_main(void)
     };
     ESP_ERROR_CHECK(buttons_init(&handlers));
     if (sound_init() != ESP_OK) ESP_LOGW(TAG, "no sound");
+    capture_set_shot_cb(on_burst_shot);
     ESP_ERROR_CHECK(remote_init(on_shutter, on_video, NULL));   /* same actions over the serial port */
 
 

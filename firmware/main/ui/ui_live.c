@@ -353,6 +353,49 @@ static void settings_switch_cb(lv_event_t *e)
     settings_set(&cfg);
 }
 
+static const uint8_t k_burst_shots[] = { 1, 3, 5, 10 };
+
+static void settings_burst_cb(lv_event_t *e)
+{
+    lv_obj_t *dd = lv_event_get_target(e);
+    settings_t cfg = *settings_get();
+    uint32_t i = lv_dropdown_get_selected(dd);
+    cfg.burst = k_burst_shots[i < sizeof(k_burst_shots) ? i : 0];
+    settings_set(&cfg);
+}
+
+/* A label on the left, a drop-down on the right. */
+static lv_obj_t *add_dropdown_row(lv_obj_t *parent, const char *text, const char *options, uint32_t selected,
+                                  lv_event_cb_t cb)
+{
+    lv_obj_t *row = lv_obj_create(parent);
+    lv_obj_set_size(row, LV_PCT(100), 64);
+    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(row, 0, 0);
+    lv_obj_set_style_pad_all(row, 4, 0);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *l = lv_label_create(row);
+    lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(l, lv_color_white(), 0);
+    lv_label_set_text(l, text);
+    lv_obj_align(l, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_t *dd = lv_dropdown_create(row);
+    lv_dropdown_set_options(dd, options);
+    lv_dropdown_set_selected(dd, selected);
+    lv_obj_set_width(dd, 220);
+    lv_obj_align(dd, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_add_event_cb(dd, cb, LV_EVENT_VALUE_CHANGED, NULL);
+    return dd;
+}
+
+static void settings_video_cb(lv_event_t *e)
+{
+    lv_obj_t *dd = lv_event_get_target(e);
+    settings_t cfg = *settings_get();
+    cfg.video_h264 = lv_dropdown_get_selected(dd) == 1;
+    settings_set(&cfg);
+}
+
 static void settings_quality_cb(lv_event_t *e)
 {
     lv_obj_t *dd = lv_event_get_target(e);
@@ -396,7 +439,7 @@ static void settings_open_cb(lv_event_t *e)
     if (s_settings) return;
     const settings_t *cfg = settings_get();
     s_settings = lv_obj_create(lv_screen_active());
-    lv_obj_set_size(s_settings, FP_OUT_W - 60, 562);
+    lv_obj_set_size(s_settings, FP_OUT_W - 60, 700);
     lv_obj_align(s_settings, LV_ALIGN_CENTER, 0, -80);
     lv_obj_set_style_bg_color(s_settings, lv_color_hex(0x181818), 0);
     lv_obj_set_style_bg_opa(s_settings, LV_OPA_COVER, 0);
@@ -418,23 +461,14 @@ static void settings_open_cb(lv_event_t *e)
     add_switch_row(s_settings, "Dim screen when idle", cfg->idle_dim, 3);
     add_switch_row(s_settings, "Shutter sound", cfg->sound, 4);
 
-    lv_obj_t *row = lv_obj_create(s_settings);
-    lv_obj_set_size(row, LV_PCT(100), 64);
-    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(row, 0, 0);
-    lv_obj_set_style_pad_all(row, 4, 0);
-    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_t *l = lv_label_create(row);
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(l, lv_color_white(), 0);
-    lv_label_set_text(l, "Preview quality");
-    lv_obj_align(l, LV_ALIGN_LEFT_MID, 0, 0);
-    lv_obj_t *dd = lv_dropdown_create(row);
-    lv_dropdown_set_options(dd, "Auto\nFull\nHalf");
-    lv_dropdown_set_selected(dd, cfg->quality);
-    lv_obj_set_width(dd, 200);
-    lv_obj_align(dd, LV_ALIGN_RIGHT_MID, 0, 0);
-    lv_obj_add_event_cb(dd, settings_quality_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    uint32_t burst_idx = 0;
+    for (uint32_t i = 0; i < sizeof(k_burst_shots); i++) {
+        if (k_burst_shots[i] == cfg->burst) burst_idx = i;
+    }
+    add_dropdown_row(s_settings, "Burst", "Off\n3 photos\n5 photos\n10 photos", burst_idx, settings_burst_cb);
+    add_dropdown_row(s_settings, "Video format", "MJPEG (plays here)\nH.264 (smaller)", cfg->video_h264 ? 1 : 0,
+                     settings_video_cb);
+    add_dropdown_row(s_settings, "Preview quality", "Auto\nFull\nHalf", cfg->quality, settings_quality_cb);
 
     lv_obj_t *close = lv_button_create(s_settings);
     lv_obj_set_size(close, LV_PCT(100), 56);
@@ -796,10 +830,15 @@ void ui_live_on_capture_started(void)
 void ui_live_on_capture_done(const capture_result_t *res)
 {
     char msg[96];
-    if (res->ok) {
-        const char *name = strrchr(res->path, '/');
-        snprintf(msg, sizeof(msg), "saved %s  (%lu KB, %lu ms)", name ? name + 1 : res->path,
+    const char *name = strrchr(res->path, '/');
+    name = name ? name + 1 : res->path;
+    if (res->ok && res->burst > 1) {
+        snprintf(msg, sizeof(msg), "saved %lu photos, last %s", (unsigned long)res->burst, name);
+    } else if (res->ok) {
+        snprintf(msg, sizeof(msg), "saved %s  (%lu KB, %lu ms)", name,
                  (unsigned long)(res->jpeg_bytes / 1024), (unsigned long)(res->encode_ms + res->write_ms));
+    } else if (res->burst > 0) {
+        snprintf(msg, sizeof(msg), "saved %lu photos, then: %s", (unsigned long)res->burst, res->error ? res->error : "?");
     } else {
         snprintf(msg, sizeof(msg), "capture failed: %s", res->error ? res->error : "?");
     }

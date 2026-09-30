@@ -57,6 +57,13 @@ typedef struct {
     volatile bool rec_encoding;            /* a frame job is queued or being encoded */
     bool rec_failed;                       /* a video write failed: the card is probably gone */
     bool ejected;                          /* unmounted on request: do not re-mount by ourselves */
+
+    /* burst: several stills from one press, each with a new random seed */
+    int burst_left;                        /* shots still to take after the current one */
+    int burst_saved;
+    bool burst_rerolled;
+    uint32_t burst_seed0;                  /* seed to go back to afterwards */
+    capture_shot_cb_t shot_cb;
     avi_writer_t avi;
     video_done_cb_t vdone_cb;
     void *vuser;
@@ -292,7 +299,22 @@ static void do_still(void)
     if (res.ok) {
         ESP_LOGI(TAG, "saved %s (%lu bytes, encode %lu ms, write %lu ms)", res.path,
                  (unsigned long)res.jpeg_bytes, (unsigned long)res.encode_ms, (unsigned long)res.write_ms);
+        s_c.burst_saved++;
     }
+
+    /* burst: new seed, let a frame rendered with it come through, take the next shot */
+    if (res.ok && s_c.burst_left > 0) {
+        s_c.burst_left--;
+        frame_pipeline_reroll();
+        s_c.burst_rerolled = true;
+        if (s_c.shot_cb) s_c.shot_cb();
+        vTaskDelay(pdMS_TO_TICKS(120));
+        if (frame_pipeline_request_capture(s_c.raw_buf, s_c.raw_len, on_snapshot, NULL) == ESP_OK) return;
+    }
+    if (s_c.burst_rerolled) frame_pipeline_set_seed(s_c.burst_seed0);     /* the preview goes back to its look */
+    s_c.burst_rerolled = false;
+    s_c.burst_left = 0;
+    res.burst = (uint32_t)s_c.burst_saved;
     s_c.busy = false;
     if (s_c.done_cb) s_c.done_cb(&res, s_c.user);
 }
@@ -413,23 +435,46 @@ esp_err_t capture_init(bool sd_mounted, capture_done_cb_t done_cb, void *user)
     return ESP_OK;
 }
 
-esp_err_t capture_trigger(void)
+esp_err_t capture_trigger_burst(int shots)
 {
     if (s_c.busy || s_c.rec_active) return ESP_ERR_INVALID_STATE;
     s_c.busy = true;
+    fp_recipe_t r;
+    frame_pipeline_get_recipe(&r);
+    s_c.burst_seed0 = r.seed;
+    s_c.burst_left = shots > 1 ? shots - 1 : 0;
+    s_c.burst_saved = 0;
+    s_c.burst_rerolled = false;
     esp_err_t ret = frame_pipeline_request_capture(s_c.raw_buf, s_c.raw_len, on_snapshot, NULL);
     if (ret != ESP_OK) s_c.busy = false;
     return ret;
+}
+
+esp_err_t capture_trigger(void)
+{
+    return capture_trigger_burst(1);
+}
+
+void capture_set_shot_cb(capture_shot_cb_t cb)
+{
+    s_c.shot_cb = cb;
+}
+
+void capture_notify_shot(void)
+{
+    if (s_c.shot_cb) s_c.shot_cb();
 }
 
 esp_err_t capture_begin_external(void)
 {
     if (s_c.busy || s_c.rec_active) return ESP_ERR_INVALID_STATE;
     s_c.busy = true;
+    s_c.burst_saved = 0;
     return ESP_OK;
 }
 
-void capture_finish_external(const uint8_t *rgb565, uint32_t w, uint32_t h, const fp_recipe_t *recipe, bool dump)
+bool capture_finish_external(const uint8_t *rgb565, uint32_t w, uint32_t h, const fp_recipe_t *recipe, bool dump,
+                             bool more)
 {
     capture_result_t res = { 0 };
     if (!rgb565) {
@@ -463,10 +508,14 @@ void capture_finish_external(const uint8_t *rgb565, uint32_t w, uint32_t h, cons
             ESP_LOGI(TAG, "saved %s (%lux%lu, %lu bytes, encode %lu ms, write %lu ms)", res.path,
                      (unsigned long)w, (unsigned long)h, (unsigned long)res.jpeg_bytes,
                      (unsigned long)res.encode_ms, (unsigned long)res.write_ms);
+            s_c.burst_saved++;
         }
     }
+    if (more && res.ok) return true;            /* the caller has another shot coming */
+    res.burst = (uint32_t)s_c.burst_saved;
     s_c.busy = false;
     if (s_c.done_cb) s_c.done_cb(&res, s_c.user);
+    return false;
 }
 
 esp_err_t capture_trigger_dump(void)

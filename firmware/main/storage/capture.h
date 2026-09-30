@@ -29,6 +29,7 @@ typedef struct {
     uint32_t encode_ms;
     uint32_t write_ms;
     const char *error;      /* human readable, valid when !ok */
+    uint32_t burst;         /* photos saved by this press (1 unless it was a burst) */
 } capture_result_t;
 
 typedef struct {
@@ -49,6 +50,16 @@ esp_err_t capture_init(bool sd_mounted, capture_done_cb_t done_cb, void *user);
 /* Trigger a still. Returns ESP_ERR_INVALID_STATE if one is already in flight. */
 esp_err_t capture_trigger(void);
 
+/* Burst: `shots` stills in a row from one press. After the first, each gets a new random
+ * seed, so every photo has a different glitch; the preview returns to its seed afterwards.
+ * The done callback is called once, for the last photo. */
+esp_err_t capture_trigger_burst(int shots);
+
+/* Called for every shot of a burst after the first (click, flash). */
+typedef void (*capture_shot_cb_t)(void);
+void capture_set_shot_cb(capture_shot_cb_t cb);
+void capture_notify_shot(void);
+
 /* Like capture_trigger(), but the JPEG is printed on the serial port as base64 instead of
  * being saved (development aid: see firmware/decode_jpeg_dump.py). */
 esp_err_t capture_trigger_dump(void);
@@ -58,10 +69,13 @@ esp_err_t capture_trigger_screenshot(void);   /* the same, with the on-screen co
  * Stills produced outside the frame pipeline (the high-resolution path in cam_ctrl.c):
  * begin reserves the capture engine (fails while a still or a recording is in progress),
  * finish encodes `rgb565` (w x h, cache-line aligned, or NULL if the frame never came),
- * saves it like any other still and calls the done callback.
+ * saves it like any other still and, after the last one, calls the done callback.
  */
 esp_err_t capture_begin_external(void);
-void capture_finish_external(const uint8_t *rgb565, uint32_t w, uint32_t h, const fp_recipe_t *recipe, bool dump);
+/* `more`: another shot of the same burst follows. Returns true if the caller should go on
+ * (the photo was saved and more were announced); otherwise the capture is finished. */
+bool capture_finish_external(const uint8_t *rgb565, uint32_t w, uint32_t h, const fp_recipe_t *recipe, bool dump,
+                             bool more);
 
 /* ---- video ---- */
 esp_err_t capture_video_start(video_done_cb_t done_cb, void *user);
