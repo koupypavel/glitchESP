@@ -25,6 +25,8 @@ void ui_live_on_video_error(const char *msg);
 void ui_live_set_zoom(float zoom);
 bool ui_live_toggle_effect(const char *id);   /* false: unknown id, or the chain is full */
 void ui_live_set_amount(float amount);
+bool ui_live_preset(int slot, bool save);     /* slot 0..PRESET_SLOTS-1: store the current look, or recall */
+void ui_live_show_panel(int panel, bool show); /* open / close a panel: 0 presets, 1 settings */
 
 #ifdef __cplusplus
 }

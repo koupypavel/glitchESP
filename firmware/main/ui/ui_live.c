@@ -9,6 +9,7 @@
 #include "fx.h"
 #include "settings.h"
 #include "cam_ctrl.h"
+#include "presets.h"
 
 static const char *TAG = "ui_live";
 
@@ -25,6 +26,8 @@ static lv_obj_t *s_chip[16];
 static lv_timer_t *s_toast_timer;
 static lv_obj_t *s_settings;   /* modal panel, NULL when closed */
 static lv_obj_t *s_zoom_label;
+static lv_obj_t *s_presets;    /* modal panel, NULL when closed */
+static lv_obj_t *s_preset_label[PRESET_SLOTS];
 
 /* ---- toast ---- */
 
@@ -76,6 +79,138 @@ static void reroll_event_cb(lv_event_t *e)
     char msg[40];
     snprintf(msg, sizeof(msg), "seed %08lx", (unsigned long)seed);
     toast_show(msg, 900);
+}
+
+/* ---- presets ---- */
+
+/* Make the chips and the slider show `r`, and hand it to the pipeline as it is. */
+static void apply_recipe(const fp_recipe_t *r)
+{
+    for (int i = 0; i < fx_registry_count() && i < 16; i++) {
+        if (!s_chip[i]) continue;
+        bool on = false;
+        for (int k = 0; k < r->chain.count; k++) {
+            if (r->chain.slots[k].fx == fx_registry_get(i) && r->chain.slots[k].enabled) on = true;
+        }
+        if (on) lv_obj_add_state(s_chip[i], LV_STATE_CHECKED);
+        else    lv_obj_remove_state(s_chip[i], LV_STATE_CHECKED);
+    }
+    lv_slider_set_value(s_slider, (int32_t)(r->amount * 100.0f + 0.5f), LV_ANIM_OFF);
+    frame_pipeline_set_recipe(r);
+}
+
+static void presets_close(void)
+{
+    if (s_presets) {
+        lv_obj_delete(s_presets);
+        s_presets = NULL;
+        memset(s_preset_label, 0, sizeof(s_preset_label));
+    }
+}
+
+static void preset_refresh_row(int slot)
+{
+    if (!s_preset_label[slot]) return;
+    char text[96];
+    presets_describe(slot, text, sizeof(text));
+    lv_label_set_text_fmt(s_preset_label[slot], "%d   %s", slot + 1, text);
+}
+
+static bool preset_load(int slot)
+{
+    fp_recipe_t r;
+    char msg[48];
+    bool ok = presets_load(slot, &r) == ESP_OK;
+    if (ok) {
+        apply_recipe(&r);
+        presets_close();
+        snprintf(msg, sizeof(msg), "preset %d", slot + 1);
+    } else {
+        snprintf(msg, sizeof(msg), "preset %d is empty", slot + 1);
+    }
+    toast_show(msg, 1200);
+    return ok;
+}
+
+static bool preset_save(int slot)
+{
+    fp_recipe_t r;
+    char msg[48];
+    frame_pipeline_get_recipe(&r);
+    bool ok = presets_save(slot, &r) == ESP_OK;
+    preset_refresh_row(slot);
+    snprintf(msg, sizeof(msg), ok ? "saved as preset %d" : "could not save preset %d", slot + 1);
+    toast_show(msg, 1200);
+    return ok;
+}
+
+static void preset_load_cb(lv_event_t *e)  { preset_load((int)(intptr_t)lv_event_get_user_data(e)); }
+static void preset_save_cb(lv_event_t *e)  { preset_save((int)(intptr_t)lv_event_get_user_data(e)); }
+static void presets_close_cb(lv_event_t *e) { (void)e; presets_close(); }
+
+/* One row per slot: tap the description to recall it, the disk button stores the current look. */
+static void presets_open_cb(lv_event_t *e)
+{
+    (void)e;
+    if (s_presets) return;
+    s_presets = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(s_presets, FP_OUT_W - 60, 150 + PRESET_SLOTS * 72);
+    lv_obj_align(s_presets, LV_ALIGN_CENTER, 0, -90);
+    lv_obj_set_style_bg_color(s_presets, lv_color_hex(0x181818), 0);
+    lv_obj_set_style_bg_opa(s_presets, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(s_presets, lv_color_hex(0xE0007A), 0);
+    lv_obj_set_style_border_width(s_presets, 2, 0);
+    lv_obj_set_style_radius(s_presets, 12, 0);
+    lv_obj_set_style_pad_all(s_presets, 16, 0);
+    lv_obj_set_flex_flow(s_presets, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(s_presets, 8, 0);
+    lv_obj_remove_flag(s_presets, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *title = lv_label_create(s_presets);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(title, lv_color_white(), 0);
+    lv_label_set_text(title, "Presets");
+
+    for (int i = 0; i < PRESET_SLOTS; i++) {
+        lv_obj_t *row = lv_obj_create(s_presets);
+        lv_obj_set_size(row, LV_PCT(100), 64);
+        lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(row, 0, 0);
+        lv_obj_set_style_pad_all(row, 0, 0);
+        lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t *load = lv_button_create(row);
+        lv_obj_set_size(load, FP_OUT_W - 60 - 32 - 4 - 84, 60);      /* panel minus padding, border, save button */
+        lv_obj_align(load, LV_ALIGN_LEFT_MID, 0, 0);
+        lv_obj_set_style_bg_color(load, lv_color_hex(0x303030), 0);
+        lv_obj_add_event_cb(load, preset_load_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+        lv_obj_t *l = lv_label_create(load);
+        lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+        lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
+        lv_obj_set_width(l, LV_PCT(100));
+        lv_obj_align(l, LV_ALIGN_LEFT_MID, 0, 0);
+        s_preset_label[i] = l;
+        preset_refresh_row(i);
+
+        lv_obj_t *save = lv_button_create(row);
+        lv_obj_set_size(save, 76, 60);
+        lv_obj_align(save, LV_ALIGN_RIGHT_MID, 0, 0);
+        lv_obj_set_style_bg_color(save, lv_color_hex(0x2060C0), 0);
+        lv_obj_add_event_cb(save, preset_save_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+        lv_obj_t *sl = lv_label_create(save);
+        lv_obj_set_style_text_font(sl, &lv_font_montserrat_20, 0);
+        lv_label_set_text(sl, LV_SYMBOL_SAVE);
+        lv_obj_center(sl);
+    }
+
+    lv_obj_t *close = lv_button_create(s_presets);
+    lv_obj_set_size(close, LV_PCT(100), 56);
+    lv_obj_set_style_bg_color(close, lv_color_hex(0xE0007A), 0);
+    lv_obj_t *cl = lv_label_create(close);
+    lv_obj_set_style_text_font(cl, &lv_font_montserrat_20, 0);
+    lv_label_set_text(cl, "Close");
+    lv_obj_center(cl);
+    lv_obj_add_event_cb(close, presets_close_cb, LV_EVENT_CLICKED, NULL);
 }
 
 /* ---- zoom ---- */
@@ -199,7 +334,7 @@ static void settings_open_cb(lv_event_t *e)
     if (s_settings) return;
     const settings_t *cfg = settings_get();
     s_settings = lv_obj_create(lv_screen_active());
-    lv_obj_set_size(s_settings, FP_OUT_W - 60, 490);
+    lv_obj_set_size(s_settings, FP_OUT_W - 60, 430);
     lv_obj_align(s_settings, LV_ALIGN_CENTER, 0, -80);
     lv_obj_set_style_bg_color(s_settings, lv_color_hex(0x181818), 0);
     lv_obj_set_style_bg_opa(s_settings, LV_OPA_COVER, 0);
@@ -247,6 +382,22 @@ static void settings_open_cb(lv_event_t *e)
     lv_obj_add_event_cb(close, settings_close_cb, LV_EVENT_CLICKED, NULL);
 }
 
+#define TOOL_W 58
+
+/* Icon button on the bar's bottom line; `pos` counts from the right edge. */
+static void tool_button(lv_obj_t *bar, const char *symbol, uint32_t color, lv_event_cb_t cb, int pos)
+{
+    lv_obj_t *b = lv_button_create(bar);
+    lv_obj_set_size(b, TOOL_W, 50);
+    lv_obj_set_style_bg_color(b, lv_color_hex(color), 0);
+    lv_obj_align(b, LV_ALIGN_BOTTOM_RIGHT, -pos * (TOOL_W + 8), 0);
+    lv_obj_t *l = lv_label_create(b);
+    lv_obj_set_style_text_font(l, &lv_font_montserrat_16, 0);
+    lv_label_set_text(l, symbol);
+    lv_obj_center(l);
+    lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, NULL);
+}
+
 static void create_control_bar(lv_obj_t *parent)
 {
     lv_obj_t *bar = lv_obj_create(parent);
@@ -288,33 +439,21 @@ static void create_control_bar(lv_obj_t *parent)
         s_chip[i] = b;
     }
 
-    lv_obj_t *dice = lv_button_create(row);
-    lv_obj_set_height(dice, 50);
-    lv_obj_set_style_bg_color(dice, lv_color_hex(0x2060C0), 0);
-    lv_obj_t *dl = lv_label_create(dice);
-    lv_obj_set_style_text_font(dl, &lv_font_montserrat_16, 0);
-    lv_label_set_text(dl, LV_SYMBOL_REFRESH);
-    lv_obj_center(dl);
-    lv_obj_add_event_cb(dice, reroll_event_cb, LV_EVENT_CLICKED, NULL);
-
-    lv_obj_t *gear = lv_button_create(row);
-    lv_obj_set_height(gear, 50);
-    lv_obj_set_style_bg_color(gear, lv_color_hex(0x505050), 0);
-    lv_obj_t *gl = lv_label_create(gear);
-    lv_obj_set_style_text_font(gl, &lv_font_montserrat_16, 0);
-    lv_label_set_text(gl, LV_SYMBOL_SETTINGS);
-    lv_obj_center(gl);
-    lv_obj_add_event_cb(gear, settings_open_cb, LV_EVENT_CLICKED, NULL);
+    /* bottom line: amount slider on the left, the three tool buttons on the right
+     * (the chip rows above are full: a button added there wraps out of sight) */
+    tool_button(bar, LV_SYMBOL_SETTINGS, 0x505050, settings_open_cb, 0);
+    tool_button(bar, LV_SYMBOL_LIST, 0x2060C0, presets_open_cb, 1);
+    tool_button(bar, LV_SYMBOL_REFRESH, 0x2060C0, reroll_event_cb, 2);
 
     lv_obj_t *cap = lv_label_create(bar);
     lv_obj_set_style_text_font(cap, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(cap, lv_color_white(), 0);
     lv_label_set_text(cap, "amount");
-    lv_obj_align(cap, LV_ALIGN_BOTTOM_LEFT, 0, -8);
+    lv_obj_align(cap, LV_ALIGN_BOTTOM_LEFT, 0, -13);
 
     s_slider = lv_slider_create(bar);
-    lv_obj_set_size(s_slider, FP_OUT_W - 24 - 110, 24);
-    lv_obj_align(s_slider, LV_ALIGN_BOTTOM_RIGHT, 0, -12);
+    lv_obj_set_size(s_slider, FP_OUT_W - 24 - 104 - 3 * (TOOL_W + 8) - 20, 24);
+    lv_obj_align(s_slider, LV_ALIGN_BOTTOM_LEFT, 104, -13);
     lv_slider_set_range(s_slider, 0, 100);
     lv_slider_set_value(s_slider, 50, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(s_slider, lv_color_hex(0xE0007A), LV_PART_INDICATOR);
@@ -387,6 +526,27 @@ bool ui_live_toggle_effect(const char *id)
     }
     ui_lvgl_unlock();
     return ok;
+}
+
+bool ui_live_preset(int slot, bool save)
+{
+    if (!ui_lvgl_lock(200)) return false;
+    bool ok = save ? preset_save(slot) : preset_load(slot);
+    ui_lvgl_unlock();
+    return ok;
+}
+
+void ui_live_show_panel(int panel, bool show)
+{
+    if (!ui_lvgl_lock(200)) return;
+    if (panel == 0) {
+        if (show) presets_open_cb(NULL);
+        else      presets_close();
+    } else {
+        if (show) settings_open_cb(NULL);
+        else      settings_close_cb(NULL);
+    }
+    ui_lvgl_unlock();
 }
 
 void ui_live_set_amount(float amount)

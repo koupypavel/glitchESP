@@ -48,6 +48,7 @@ typedef struct {
 
     /* capture request */
     volatile bool capture_pending;
+    volatile bool capture_with_ui;   /* snapshot after the UI layer is stamped on (screenshots) */
     uint8_t *capture_dst;
     size_t capture_dst_len;
     fp_capture_cb_t capture_cb;
@@ -400,6 +401,18 @@ static bool chain_prefers_half(const fx_chain_t *c)
     return cost >= 5;
 }
 
+/* Copy the frame being built to the capture requester's buffer and tell it. */
+static void snapshot(const uint16_t *fb, uint32_t seq, const fp_recipe_t *recipe)
+{
+    if (!s_p.capture_dst) return;
+    memcpy(s_p.capture_dst, fb, FP_OUT_BYTES);
+    esp_cache_msync(s_p.capture_dst, FP_OUT_BYTES, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);   /* encoder buffer is not line-aligned */
+    fp_snapshot_t snap = { .buf = s_p.capture_dst, .len = s_p.capture_dst_len, .seq = seq, .recipe = *recipe };
+    s_p.capture_pending = false;
+    s_p.capture_with_ui = false;
+    if (s_p.capture_cb) s_p.capture_cb(&snap, s_p.capture_user);
+}
+
 void frame_pipeline_on_camera_frame(uint8_t *camera_buf, uint8_t cam_idx,
                                     uint32_t cam_w, uint32_t cam_h, size_t camera_buf_len, void *user_data)
 {
@@ -491,17 +504,12 @@ void frame_pipeline_on_camera_frame(uint8_t *camera_buf, uint8_t cam_idx,
     app_video_release_frame(cam_idx);
 
     /* Snapshot for capture: the clean frame before the UI is stamped on. */
-    if (s_p.capture_pending && s_p.capture_dst) {
-        memcpy(s_p.capture_dst, fb, FP_OUT_BYTES);
-        esp_cache_msync(s_p.capture_dst, FP_OUT_BYTES, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);   /* encoder buffer is not line-aligned */
-        fp_snapshot_t snap = { .buf = s_p.capture_dst, .len = s_p.capture_dst_len, .seq = seq, .recipe = recipe };
-        s_p.capture_pending = false;
-        if (s_p.capture_cb) s_p.capture_cb(&snap, s_p.capture_user);
-    }
+    if (s_p.capture_pending && !s_p.capture_with_ui) snapshot(fb, seq, &recipe);
 
     int64_t t1 = esp_timer_get_time();
     bool recording = capture_video_active();
     if (!recording) ui_lvgl_stamp(fb);            /* the video must stay clean */
+    if (s_p.capture_pending && s_p.capture_with_ui) snapshot(fb, seq, &recipe);   /* screenshot */
     s_p.acc_ui_us += (uint64_t)(esp_timer_get_time() - t1);
     display_submit_fb(fb_idx);
     if (recording) capture_video_on_frame(fb_idx, seq);
@@ -567,6 +575,21 @@ void frame_pipeline_set_chain(const fx_chain_t *chain)
     taskENTER_CRITICAL(&s_p.lock);
     s_p.recipe.chain = *chain;
     fx_chain_set_amount(&s_p.recipe.chain, s_p.recipe.amount);
+    taskEXIT_CRITICAL(&s_p.lock);
+}
+
+void frame_pipeline_capture_with_ui(bool with_ui)
+{
+    s_p.capture_with_ui = with_ui;
+}
+
+void frame_pipeline_set_recipe(const fp_recipe_t *r)
+{
+    float amount = r->amount < 0.0f ? 0.0f : (r->amount > 1.0f ? 1.0f : r->amount);
+    taskENTER_CRITICAL(&s_p.lock);
+    s_p.recipe.chain = r->chain;          /* parameters as given, not re-derived from the amount */
+    s_p.recipe.amount = amount;
+    s_p.recipe.seed = r->seed;
     taskEXIT_CRITICAL(&s_p.lock);
 }
 

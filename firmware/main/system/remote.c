@@ -22,6 +22,7 @@
 #include "ov5647_ctl.h"
 #include "cam_ctrl.h"
 #include "auto_exposure.h"
+#include "presets.h"
 
 static const char *TAG = "remote";
 
@@ -143,6 +144,42 @@ static void handle(char *line)
     } else if (!strcmp(line, "stilldump")) {
         esp_err_t r = cam_ctrl_take_still(true);
         if (r != ESP_OK) printf("stilldump: %s\n", esp_err_to_name(r));
+    } else if (!strcmp(line, "uidump")) {
+        esp_err_t r = capture_trigger_screenshot();
+        if (r != ESP_OK) printf("uidump: %s\n", esp_err_to_name(r));
+    } else if (!strcmp(line, "preset")) {
+        /* preset list | save N | load N | clear N | panel 0/1   (N = 1..PRESET_SLOTS) */
+        char what[8] = "";
+        int n = 0;
+        sscanf(arg, "%7s %d", what, &n);
+        if (!strcmp(what, "list")) {
+            for (int i = 0; i < PRESET_SLOTS; i++) {
+                char text[96];
+                presets_describe(i, text, sizeof(text));
+                printf("preset %d: %s\n", i + 1, text);
+            }
+        } else if (!strcmp(what, "panel")) {
+            ui_live_show_panel(0, n != 0);
+        } else if (n < 1 || n > PRESET_SLOTS) {
+            printf("usage: preset list | save N | load N | clear N | panel 0/1\n");
+        } else if (!strcmp(what, "save") || !strcmp(what, "load")) {
+            printf("preset %s %d: %s\n", what, n, ui_live_preset(n - 1, what[0] == 's') ? "ok" : "failed");
+        } else if (!strcmp(what, "clear")) {
+            printf("preset clear %d: %s\n", n, esp_err_to_name(presets_clear(n - 1)));
+        }
+    } else if (!strcmp(line, "settings")) {
+        ui_live_show_panel(1, atoi(arg) != 0);
+    } else if (!strcmp(line, "recipe")) {
+        fp_recipe_t r;
+        frame_pipeline_get_recipe(&r);
+        printf("recipe: amount %.2f seed %08lx", (double)r.amount, (unsigned long)r.seed);
+        for (int i = 0; i < r.chain.count; i++) {
+            const fx_slot_t *s = &r.chain.slots[i];
+            if (!s->fx || !s->enabled) continue;
+            printf(" | %s", s->fx->id);
+            for (int k = 0; k < s->fx->n_params; k++) printf(" %.2f", (double)s->params[k]);
+        }
+        printf("\n");
     } else if (!strcmp(line, "zoom")) {
         if (*arg) ui_live_set_zoom((float)atof(arg));
         printf("zoom %.2f (%s)\n", (double)cam_ctrl_get_zoom(), cam_ctrl_mode_name());
@@ -168,7 +205,8 @@ static void handle(char *line)
     } else if (!strcmp(line, "sdbench")) {
         cmd_sdbench();
     } else if (!strcmp(line, "help")) {
-        printf("commands: photo | video | dump | stilldump | zoom [1..6] | tele <x0> <y0> | fx <id> | amount <0..1> | ae | ls | get <file> | reg <hex> [hex] | sdbench\n");
+        printf("commands: photo | video | dump | stilldump | uidump | zoom [1..6] | fx <id> | amount <0..1> | recipe | "
+               "preset list|save N|load N|clear N|panel 0/1 | settings 0/1 | ae | ls | get <file> | reg <hex> [hex] | tele <x0> <y0> | sdbench\n");
     } else {
         printf("unknown command '%s' (try help)\n", line);
     }

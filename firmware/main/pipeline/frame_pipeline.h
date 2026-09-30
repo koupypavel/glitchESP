@@ -70,7 +70,11 @@ const fp_frame_t *frame_pipeline_acquire_latest(void);
 /* Request a snapshot of the next completed frame into `dst` (len >= FP_OUT_BYTES). */
 esp_err_t frame_pipeline_request_capture(uint8_t *dst, size_t dst_len, fp_capture_cb_t cb, void *user);
 
+/* The next requested capture is taken after the UI layer is stamped on (a screenshot). */
+void frame_pipeline_capture_with_ui(bool with_ui);
+
 /* ---- recipe control (thread-safe, callable from the UI) ---- */
+void frame_pipeline_set_recipe(const fp_recipe_t *r);     /* chain with its parameters, amount, seed (presets) */
 void frame_pipeline_set_chain(const fx_chain_t *chain);   /* replaces the chain, keeps amount/seed */
 void frame_pipeline_get_recipe(fp_recipe_t *out);        /* frame_no = the frame on screen */
 bool frame_pipeline_chain_is_temporal(void);              /* an active effect needs the previous frame */

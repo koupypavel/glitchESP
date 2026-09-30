@@ -52,6 +52,7 @@ esp_err_t capture_trigger(void);
 /* Like capture_trigger(), but the JPEG is printed on the serial port as base64 instead of
  * being saved (development aid: see firmware/decode_jpeg_dump.py). */
 esp_err_t capture_trigger_dump(void);
+esp_err_t capture_trigger_screenshot(void);   /* the same, with the on-screen controls in the picture */
 
 /*
  * Stills produced outside the frame pipeline (the high-resolution path in cam_ctrl.c):

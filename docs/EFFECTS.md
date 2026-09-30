@@ -72,8 +72,10 @@ on the same input gives the identical picture.
 `fx_chain_t` holds up to three slots (effect + its parameters + enabled flag).
 `fx_chain_apply()` runs them in order. Since an effect must not write into the buffer it reads
 (channel shift samples pixels to the left and right that would already be overwritten), the
-chain ping-pongs: effect 1 writes to a temp buffer, effect 2 reads temp and writes the output,
-and so on. The last enabled effect always lands in `out`. With nothing enabled the input is
+chain ping-pongs between a temp buffer and the output. The order is counted back from the end
+so that the last enabled effect lands in `out`: with two effects it is temp, out; with three
+it is out, temp, out. (An earlier version counted from the front and ran the third effect in
+place, which quietly wrecked every three-effect chain.) With nothing enabled the input is
 simply copied.
 
 ## 5. Where it runs on the device
@@ -129,11 +131,14 @@ These follow the named open-eye phenomena in the psychedelic-replication literat
 (Wikipedia "Psychedelic replication", PsychonautWiki "Visual effects").
 
 **Tracers** (`fx_tracers.c`, phenomenon: tracers / after images). Temporal: the frame is
-combined with a decayed copy of the previous *output*. "Echo" mode keeps the brighter of the
+combined with a decayed copy of what the effect produced for the previous frame. "Echo" mode keeps the brighter of the
 live pixel and the faded old one, so the live frame stays crisp and older copies fade behind
 it; "blend" mode cross-fades for smooth ghosting. "Rainbow" fades the three channels at
-slowly cycling rates so trails drift through hues. Needs `ctx->prev`, which the pipeline
-provides (ping-pong buffers at half resolution, a clean copy at full).
+slowly cycling rates so trails drift through hues. Its history is its *own* previous output:
+the chain copies what tracers produced into `ctx->keep` before any later effect runs, and
+hands it back as `ctx->prev` on the next frame. If the chain's final output were fed back
+instead, every effect after tracers would be applied to the trail again on each frame, and
+hue rotation, contrast and displacement would compound until the picture dissolves.
 
 **Hue drift** (`fx_hueshift.c`, phenomena: colour shifting, colour enhancement). A hue
 rotation matrix combined with saturation and contrast, folded into a 64K-entry RGB565 lookup

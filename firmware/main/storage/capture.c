@@ -413,6 +413,15 @@ esp_err_t capture_trigger_dump(void)
     return ret;
 }
 
+esp_err_t capture_trigger_screenshot(void)
+{
+    if (s_c.busy || s_c.rec_active) return ESP_ERR_INVALID_STATE;
+    frame_pipeline_capture_with_ui(true);
+    esp_err_t ret = capture_trigger_dump();
+    if (ret != ESP_OK) frame_pipeline_capture_with_ui(false);
+    return ret;
+}
+
 /* ---- video ---- */
 
 esp_err_t capture_video_start(video_done_cb_t done_cb, void *user)

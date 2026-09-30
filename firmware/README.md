@@ -29,7 +29,7 @@ profile that matches your board (`esptool.py chip_id` prints the revision).
 | `main/ui/` | LVGL widgets drawn into a separate layer that is stamped onto each frame |
 | `main/storage/` | Stills (hardware JPEG + `.json` recipe), Motion-JPEG AVI, fast SD writer |
 | `main/input/` | BOOT button (GPIO35): short press = photo, hold 0.7 s = start/stop video |
-| `main/system/` | Settings in NVS (mirror/flip, preview quality, JPEG quality), serial remote |
+| `main/system/` | Settings and presets in NVS, serial remote |
 | `main/bench.c` | On-device benchmark, enabled with `GLITCH_BENCH` in `app_main.c` |
 
 ## How a frame gets to the screen
@@ -80,6 +80,13 @@ block of PSRAM that doubles as the two 4.2 MB buffers this needs. Exposure time,
 the preview so the photo matches it. Effects that need the previous frame (tracers) have no
 history at that size, so with those the on-screen frame is saved instead.
 
+## Presets
+
+The list button opens eight slots. The disk button on a row stores the current look (effects
+with their parameters, the amount and the seed); tapping the row recalls it. Presets live in
+NVS as small blobs that name effects by id, so they survive firmware updates that add or
+reorder effects (`system/presets.c`).
+
 ## Video
 
 Hold BOOT for 0.7 s to start recording, hold again to stop. Frames are the same 720×1280
@@ -94,7 +101,8 @@ The console UART (115200 baud) accepts text commands, so the camera can be drive
 checked from a PC:
 
 ```
-photo | video | dump | stilldump | zoom [1..6] | fx <id> | amount <0..1> | ae
+photo | video | dump | stilldump | uidump | zoom [1..6] | fx <id> | amount <0..1>
+recipe | preset list|save N|load N|clear N|panel 0/1 | settings 0/1 | ae
 ls | get <file> | reg <hex> [hex] | tele <x0> <y0> | sdbench | help
 ```
 

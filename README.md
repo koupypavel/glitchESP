@@ -26,6 +26,7 @@ live, the shutter burns the effect into the saved photo or video, and every shot
   at roughly 12 fps.
 - **Zoom** from 1× to 6×. 1× uses the sensor's 2×2 binned mode (widest view, least noise),
   1.5× shows sensor pixels one to one, beyond that the picture is enlarged digitally.
+- **Presets**: eight slots for effect recipes (effects, amount, seed), stored in flash.
 - **Settings** for mirror, flip and preview quality, stored in flash.
 
 ## Controls
@@ -34,7 +35,8 @@ live, the shutter burns the effect into the saved photo or video, and every shot
 |---|---|
 | Effect chips (bottom bar) | Toggle an effect; up to three run in order |
 | Amount slider | Intensity of all active effects |
-| Seed button | New random seed |
+| Seed button (arrows) | New random seed |
+| Presets button (list) | Eight slots: the disk icon stores the current look, tapping a row recalls it |
 | + / − (right edge) | Zoom in and out |
 | Gear button | Settings: mirror left/right, flip up/down, full-resolution photos, preview quality |
 | BOOT button, short press | Take a photo |
@@ -94,7 +96,7 @@ what was learned about performance on the ESP32-P4.
 ## Status
 
 Working on the device: preview, all twelve effects on both cores, zoom, settings, and
-photos (including full-resolution stills) and video saved to the card. Still planned: presets, an on-device gallery, per-parameter effect
+photos (including full-resolution stills) and video saved to the card. Still planned: an on-device gallery, per-parameter effect
 editing, a wired shutter button and rotary knob on the expansion header, and a smaller video
 format using the P4's H.264 encoder.
 
