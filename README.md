@@ -34,7 +34,9 @@ live, the shutter burns the effect into the saved photo or video, and every shot
   four starter looks are filled in on first boot.
 - **Gallery**: browse the photos and play the videos on the card, delete them, or take the
   look of any picture back into the camera ("Use look" reads its recipe sidecar).
-- **Settings** for mirror, flip and preview quality, stored in flash.
+- **Sounds**: a shutter click and recording beeps through the board's speaker connector.
+- **Settings** for mirror, flip, photo size, idle dimming, sound and preview quality, stored
+  in flash.
 
 ## Controls
 
@@ -48,7 +50,7 @@ live, the shutter burns the effect into the saved photo or video, and every shot
 | Presets button (list) | Eight slots: the disk icon stores the current look, tapping a row recalls it |
 | Gallery button (picture) | Browse with the arrows or by swiping; play, "Use look", delete (tap twice), close |
 | + / − (right edge) | Zoom in and out |
-| Gear button | Settings: mirror left/right, flip up/down, full-resolution photos, preview quality |
+| Gear button | Settings: mirror, flip, full-resolution photos, idle dimming, shutter sound, preview quality |
 | BOOT button, short press | Take a photo (in the gallery: back to the camera) |
 | BOOT button, hold 0.7 s | Start or stop video recording |
 
@@ -123,8 +125,8 @@ what was learned about performance on the ESP32-P4.
 Working on the device: preview, all fifteen effects on both cores, parameter editing,
 presets, zoom, settings, photos (including full-resolution stills) and video saved to the
 card, and the gallery. The wired controls on the header are implemented but untested.
-Still open from the original plan: a shutter sound, a battery indicator, and a smaller
-video format using the P4's H.264 encoder.
+Still open from the original plan: a battery indicator and a smaller video format using
+the P4's H.264 encoder.
 
 ## License
 

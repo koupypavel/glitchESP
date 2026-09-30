@@ -19,6 +19,7 @@ set(srcs
     "system/settings.c"
     "system/remote.c"
     "system/presets.c"
+    "system/sound.c"
     "input/buttons.c"
     "effects/fx_registry.c"
     "effects/fx_chanshift.c"

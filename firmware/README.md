@@ -29,7 +29,7 @@ profile that matches your board (`esptool.py chip_id` prints the revision).
 | `main/ui/` | LVGL widgets drawn into a separate layer that is stamped onto each frame; the gallery |
 | `main/storage/` | Stills (hardware JPEG + `.json` recipe), Motion-JPEG AVI, fast SD writer |
 | `main/input/` | BOOT button, plus optional buttons and a rotary encoder on the header (pins in `buttons.h`) |
-| `main/system/` | Settings and presets in NVS, serial remote |
+| `main/system/` | Settings and presets in NVS, sounds, serial remote |
 | `main/bench.c` | On-device benchmark, enabled with `GLITCH_BENCH` in `app_main.c` |
 
 ## How a frame gets to the screen
@@ -144,6 +144,10 @@ python decode_jpeg_dump.py run.log frame.jpg
   every five seconds, and again whenever a photo, a recording or the gallery needs it. A
   failed write unmounts the card so that it can be mounted again.
 - **Starter presets** go into empty slots 1 to 4 on the first boot only.
+- **Sounds** (`system/sound.c`): a shutter click and two recording beeps, synthesized and
+  played through the ES8311 codec. The amplifier is switched on for the first sound (0.1 to
+  0.3 s, so the first click of a session is a little late) and off again after 30 s of
+  silence. There is a switch in the settings.
 
 ## Notes on the hardware
 

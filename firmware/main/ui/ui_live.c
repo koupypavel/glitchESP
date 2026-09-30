@@ -349,6 +349,7 @@ static void settings_switch_cb(lv_event_t *e)
     if (which == 1) cfg.flip_v = on;
     if (which == 2) cfg.photo_hires = on;
     if (which == 3) cfg.idle_dim = on;
+    if (which == 4) cfg.sound = on;
     settings_set(&cfg);
 }
 
@@ -395,7 +396,7 @@ static void settings_open_cb(lv_event_t *e)
     if (s_settings) return;
     const settings_t *cfg = settings_get();
     s_settings = lv_obj_create(lv_screen_active());
-    lv_obj_set_size(s_settings, FP_OUT_W - 60, 496);
+    lv_obj_set_size(s_settings, FP_OUT_W - 60, 562);
     lv_obj_align(s_settings, LV_ALIGN_CENTER, 0, -80);
     lv_obj_set_style_bg_color(s_settings, lv_color_hex(0x181818), 0);
     lv_obj_set_style_bg_opa(s_settings, LV_OPA_COVER, 0);
@@ -415,6 +416,7 @@ static void settings_open_cb(lv_event_t *e)
     add_switch_row(s_settings, "Flip up/down", cfg->flip_v, 1);
     add_switch_row(s_settings, "Full-resolution photos (1x)", cfg->photo_hires, 2);
     add_switch_row(s_settings, "Dim screen when idle", cfg->idle_dim, 3);
+    add_switch_row(s_settings, "Shutter sound", cfg->sound, 4);
 
     lv_obj_t *row = lv_obj_create(s_settings);
     lv_obj_set_size(row, LV_PCT(100), 64);

@@ -29,6 +29,7 @@
 #include "cam_ctrl.h"
 #include "gallery.h"
 #include "presets.h"
+#include "sound.h"
 
 #define GLITCH_BENCH 0          /* 1 = run main/bench.c after boot (effect timings, test shot) */
 void bench_start(void);
@@ -55,10 +56,12 @@ static void on_video(void *user)
     if (gallery_active()) return;
     if (capture_video_active()) {
         capture_video_stop();
+        sound_play(SOUND_REC_STOP);
         return;
     }
     esp_err_t ret = capture_video_start(on_video_done, NULL);
     if (ret == ESP_OK) {
+        sound_play(SOUND_REC_START);
         ui_live_on_video_started();
     } else {
         ESP_LOGW(TAG, "video start failed: %s", esp_err_to_name(ret));
@@ -80,6 +83,7 @@ static void on_shutter(void *user)
     if (settings_get()->photo_hires && cam_ctrl_still_available()) ret = cam_ctrl_take_still(false);
     if (ret != ESP_OK) ret = capture_trigger();
     if (ret == ESP_OK) {
+        sound_play(SOUND_SHUTTER);
         ui_live_on_capture_started();
     } else {
         ESP_LOGW(TAG, "shutter ignored: %s", esp_err_to_name(ret));
@@ -197,6 +201,7 @@ void app_main(void)
         .knob_click = on_knob_click, .knob_hold = on_knob_hold, .knob_turn = on_knob_turn,
     };
     ESP_ERROR_CHECK(buttons_init(&handlers));
+    if (sound_init() != ESP_OK) ESP_LOGW(TAG, "no sound");
     ESP_ERROR_CHECK(remote_init(on_shutter, on_video, NULL));   /* same actions over the serial port */
 
 

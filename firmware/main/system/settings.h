@@ -16,6 +16,7 @@ typedef struct {
     bool photo_hires;     /* at zoom 1: re-read the sensor un-binned for a 1088x1920 photo */
     bool bar_hidden;      /* the control bar is tucked away */
     bool idle_dim;        /* turn the backlight down after a minute without input */
+    bool sound;           /* shutter click and recording beeps */
 } settings_t;
 
 esp_err_t settings_init(void);            /* load from NVS (defaults if absent) */
