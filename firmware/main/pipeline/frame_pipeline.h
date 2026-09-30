@@ -79,6 +79,7 @@ void frame_pipeline_set_chain(const fx_chain_t *chain);   /* replaces the chain,
 void frame_pipeline_get_recipe(fp_recipe_t *out);        /* frame_no = the frame on screen */
 bool frame_pipeline_chain_is_temporal(void);              /* an active effect needs the previous frame */
 void frame_pipeline_set_amount(float amount);             /* re-maps every slot via from_amount */
+bool frame_pipeline_set_param(const fx_desc_t *fx, int index, float value);   /* one parameter of an active effect */
 void frame_pipeline_set_seed(uint32_t seed);
 uint32_t frame_pipeline_reroll(void);                     /* new random seed, returns it */
 

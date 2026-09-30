@@ -14,10 +14,10 @@
 enum { P_WAYS, P_AXIS, P_SWEEP, P_FLIP };
 
 static const fx_param_t s_params[] = {
-    { "ways",  "2-way (0) / 4-way (1)", 0, 1, 0 },
-    { "axis",  "Axis position",         0.1f, 0.9f, 0.5f },
-    { "sweep", "Axis sweep",            0, 1, 0.3f },
-    { "flip",  "Mirror side",           0, 1, 0 },
+    { "ways",  "Four-way",              0, 1, 0, 1 },
+    { "axis",  "Axis position",         0.1f, 0.9f, 0.5f, 0 },
+    { "sweep", "Axis sweep",            0, 1, 0.3f, 0 },
+    { "flip",  "Mirror side",           0, 1, 0, 1 },
 };
 
 static void from_amount(float a, float *p)

@@ -12,6 +12,7 @@ set(srcs
     "storage/sd_writer.c"
     "ui/ui_live.c"
     "ui/gallery.c"
+    "ui/ui_editor.c"
     "ui/ui_lvgl.c"
     "display/display.c"
     "system/settings.c"

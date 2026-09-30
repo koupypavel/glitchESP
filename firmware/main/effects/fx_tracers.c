@@ -21,10 +21,10 @@
 enum { P_DECAY, P_MODE, P_RAINBOW, P_SPEED };
 
 static const fx_param_t s_params[] = {
-    { "decay",   "Trail length",     0, 1, 0.85f },
-    { "mode",    "Echo (0) / blend (1)", 0, 1, 0 },
-    { "rainbow", "Hue drift",        0, 1, 0.5f },
-    { "speed",   "Drift speed",      0, 1, 0.3f },
+    { "decay",   "Trail length",     0, 1, 0.85f, 0 },
+    { "mode",    "Blend instead of echo", 0, 1, 0, 1 },
+    { "rainbow", "Hue drift",        0, 1, 0.5f, 0 },
+    { "speed",   "Drift speed",      0, 1, 0.3f, 0 },
 };
 
 static void from_amount(float a, float *p)

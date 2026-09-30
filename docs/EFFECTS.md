@@ -35,7 +35,7 @@ Pixel (x, y) lives at `px[y * stride_px + x]`. Every effect is built around that
 typedef struct fx_desc {
     const char *id, *name;             // "chanshift", "Channel shift"
     uint8_t n_params;                  // how many sliders
-    const fx_param_t *params;          // each: id, label, min, max, default
+    const fx_param_t *params;          // each: id, label, min, max, default, step
     bool in_place, temporal;           // capabilities (see below)
     void (*from_amount)(float amount, float *params);   // one-knob mapping
     void (*apply)(const fx_frame_t *in, fx_frame_t *out,
@@ -171,6 +171,9 @@ orbism (radial block displacement), melting (feedback warp that accumulates).
 ## 7. Adding an effect (checklist)
 
 1. Copy `fx_bitcrush.c` to `fx_yourname.c`. Fill the parameter table, `from_amount()`, `apply()`.
+   The table also drives the on-screen parameter editor: `step` 0 gives a slider (whole
+   numbers when the range is 20 or more), `step` 1 with a 0..1 range gives an on/off switch,
+   `step` 1 otherwise a slider in whole steps. Keep the labels short.
    Honour `ctx->y0`/`ctx->y1` and seed randomness per band/row with `fx_rng_init_at()`; then
    set `row_parallel = true` so both cores share the work. Per-frame tables go in `prepare()`.
    Parameters measured in pixels (shifts, band heights, tile sizes, wavelengths) are defined

@@ -80,6 +80,15 @@ block of PSRAM that doubles as the two 4.2 MB buffers this needs. Exposure time,
 the preview so the photo matches it. Effects that need the previous frame (tracers) have no
 history at that size, so with those the on-screen frame is saved instead.
 
+## Editing parameters
+
+The pencil button opens a sheet over the control bar (`ui/ui_editor.c`) with one tab per
+active effect and a slider or switch per parameter, built from the effect's parameter
+table. Changes apply to the running preview at once. They stay when other effects are
+switched on or off, and they are part of the recipe, so presets, photo sidecars and "Use
+look" carry them. Moving the amount slider maps every parameter from the one knob again,
+and "Reset" does that for the effect being edited.
+
 ## Presets
 
 The list button opens eight slots. The disk button on a row stores the current look (effects
@@ -112,6 +121,7 @@ checked from a PC:
 
 ```
 photo | video | dump | stilldump | uidump | zoom [1..6] | fx <id> | amount <0..1>
+edit [fx]|close | param <fx> <param> <value>
 recipe | preset list|save N|load N|clear N|panel 0/1 | settings 0/1 | ae
 gallery open|close|next|prev|play|look|delete
 ls | get <file> | reg <hex> [hex] | tele <x0> <y0> | sdbench | help

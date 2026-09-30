@@ -12,14 +12,14 @@
 enum { P_DX_R, P_DY_R, P_DX_G, P_DY_G, P_DX_B, P_DY_B, P_JITTER, P_BAND };
 
 static const fx_param_t s_params[] = {
-    { "dx_r",   "Red X",     -96, 96, -12 },
-    { "dy_r",   "Red Y",     -96, 96,   0 },
-    { "dx_g",   "Green X",   -96, 96,   0 },
-    { "dy_g",   "Green Y",   -96, 96,   0 },
-    { "dx_b",   "Blue X",    -96, 96,  12 },
-    { "dy_b",   "Blue Y",    -96, 96,   0 },
-    { "jitter", "Band jitter", 0,  1, 0.3f },
-    { "band",   "Band height", 4, 256, 32 },
+    { "dx_r",   "Red X",     -96, 96, -12, 0 },
+    { "dy_r",   "Red Y",     -96, 96,   0, 0 },
+    { "dx_g",   "Green X",   -96, 96,   0, 0 },
+    { "dy_g",   "Green Y",   -96, 96,   0, 0 },
+    { "dx_b",   "Blue X",    -96, 96,  12, 0 },
+    { "dy_b",   "Blue Y",    -96, 96,   0, 0 },
+    { "jitter", "Band jitter", 0,  1, 0.3f, 0 },
+    { "band",   "Band height", 4, 256, 32, 0 },
 };
 
 static void from_amount(float a, float *p)

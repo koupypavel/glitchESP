@@ -18,6 +18,9 @@ extern "C" {
 
 #define UI_KEY_CLEAR   0x0001
 #define UI_KEY_DIM     0x0002
+/* LVGL colours that land exactly on those keys after the RGB565 conversion */
+#define UI_COLOR_CLEAR lv_color_hex(0x000008)
+#define UI_COLOR_DIM   lv_color_hex(0x000010)
 
 esp_err_t ui_lvgl_init(void);          /* LVGL, display, touch, task on core 0 */
 bool ui_lvgl_lock(uint32_t timeout_ms);

@@ -11,6 +11,7 @@
 #include "cam_ctrl.h"
 #include "presets.h"
 #include "gallery.h"
+#include "ui_editor.h"
 
 static const char *TAG = "ui_live";
 
@@ -51,27 +52,69 @@ static void toast_show(const char *msg, uint32_t ms)
 
 /* ---- effect controls ---- */
 
+/* The chips changed: build the chain they describe. Effects that stay keep their
+ * parameters (they may have been edited by hand); new ones start from the amount knob. */
 static void rebuild_chain(void)
 {
-    fx_chain_t chain;
-    fx_chain_clear(&chain);
+    fp_recipe_t cur, next;
+    frame_pipeline_get_recipe(&cur);
+    next = cur;
+    fx_chain_clear(&next.chain);
     for (int i = 0; i < fx_registry_count() && i < 16; i++) {
-        if (s_chip[i] && lv_obj_has_state(s_chip[i], LV_STATE_CHECKED)) {
-            if (fx_chain_add(&chain, fx_registry_get(i)) < 0) {
-                lv_obj_remove_state(s_chip[i], LV_STATE_CHECKED);
-                toast_show("max 3 effects", 1200);
-            }
+        if (!s_chip[i] || !lv_obj_has_state(s_chip[i], LV_STATE_CHECKED)) continue;
+        const fx_desc_t *fx = fx_registry_get(i);
+        int slot = fx_chain_add(&next.chain, fx);
+        if (slot < 0) {
+            lv_obj_remove_state(s_chip[i], LV_STATE_CHECKED);
+            toast_show("max 3 effects", 1200);
+            continue;
         }
+        const fx_slot_t *old = NULL;
+        for (int k = 0; k < cur.chain.count; k++) {
+            if (cur.chain.slots[k].fx == fx) old = &cur.chain.slots[k];
+        }
+        if (old) memcpy(next.chain.slots[slot].params, old->params, sizeof(old->params));
+        else if (fx->from_amount) fx->from_amount(cur.amount, next.chain.slots[slot].params);
     }
-    frame_pipeline_set_chain(&chain);
+    frame_pipeline_set_recipe(&next);
+    ui_editor_sync();
 }
 
-static void chip_event_cb(lv_event_t *e)   { (void)e; rebuild_chain(); }
+static int chips_checked(void)
+{
+    int n = 0;
+    for (int i = 0; i < fx_registry_count() && i < 16; i++) {
+        if (s_chip[i] && lv_obj_has_state(s_chip[i], LV_STATE_CHECKED)) n++;
+    }
+    return n;
+}
 
+/* A fourth effect is refused: the chip that was just tapped goes back off. */
+static bool chip_over_limit(lv_obj_t *chip)
+{
+    if (!lv_obj_has_state(chip, LV_STATE_CHECKED) || chips_checked() <= FX_CHAIN_MAX) return false;
+    lv_obj_remove_state(chip, LV_STATE_CHECKED);
+    toast_show("max 3 effects", 1200);
+    return true;
+}
+
+static void chip_event_cb(lv_event_t *e)
+{
+    if (!chip_over_limit(lv_event_get_target(e))) rebuild_chain();
+}
+
+/* The one knob: every parameter of every active effect follows it again. */
 static void slider_event_cb(lv_event_t *e)
 {
     lv_obj_t *s = lv_event_get_target(e);
     frame_pipeline_set_amount((float)lv_slider_get_value(s) / 100.0f);
+    ui_editor_sync();
+}
+
+static void editor_open_cb(lv_event_t *e)
+{
+    (void)e;
+    if (!ui_editor_open(NULL)) toast_show("turn on an effect first", 1500);
 }
 
 static void reroll_event_cb(lv_event_t *e)
@@ -99,6 +142,7 @@ static void apply_recipe(const fp_recipe_t *r)
     }
     lv_slider_set_value(s_slider, (int32_t)(r->amount * 100.0f + 0.5f), LV_ANIM_OFF);
     frame_pipeline_set_recipe(r);
+    ui_editor_sync();
 }
 
 static void presets_close(void)
@@ -384,7 +428,7 @@ static void settings_open_cb(lv_event_t *e)
     lv_obj_add_event_cb(close, settings_close_cb, LV_EVENT_CLICKED, NULL);
 }
 
-#define TOOL_W 58
+#define TOOL_W 52
 
 static void gallery_open_cb(lv_event_t *e) { (void)e; gallery_open(); }
 
@@ -449,6 +493,7 @@ static void create_control_bar(lv_obj_t *parent)
     tool_button(bar, LV_SYMBOL_LIST, 0x2060C0, presets_open_cb, 1);
     tool_button(bar, LV_SYMBOL_IMAGE, 0x2060C0, gallery_open_cb, 2);
     tool_button(bar, LV_SYMBOL_REFRESH, 0x2060C0, reroll_event_cb, 3);
+    tool_button(bar, LV_SYMBOL_EDIT, 0xE0007A, editor_open_cb, 4);
 
     lv_obj_t *cap = lv_label_create(bar);
     lv_obj_set_style_text_font(cap, &lv_font_montserrat_20, 0);
@@ -457,7 +502,7 @@ static void create_control_bar(lv_obj_t *parent)
     lv_obj_align(cap, LV_ALIGN_BOTTOM_LEFT, 0, -13);
 
     s_slider = lv_slider_create(bar);
-    lv_obj_set_size(s_slider, FP_OUT_W - 24 - 104 - 4 * (TOOL_W + 8) - 20, 24);
+    lv_obj_set_size(s_slider, FP_OUT_W - 24 - 104 - 5 * (TOOL_W + 8) - 20, 24);
     lv_obj_align(s_slider, LV_ALIGN_BOTTOM_LEFT, 104, -13);
     lv_slider_set_range(s_slider, 0, 100);
     lv_slider_set_value(s_slider, 50, LV_ANIM_OFF);
@@ -526,8 +571,8 @@ bool ui_live_toggle_effect(const char *id)
         bool turn_on = !lv_obj_has_state(s_chip[i], LV_STATE_CHECKED);
         if (turn_on) lv_obj_add_state(s_chip[i], LV_STATE_CHECKED);
         else         lv_obj_remove_state(s_chip[i], LV_STATE_CHECKED);
-        rebuild_chain();                       /* un-checks the chip again if the chain is full */
-        ok = lv_obj_has_state(s_chip[i], LV_STATE_CHECKED) == turn_on;
+        ok = !chip_over_limit(s_chip[i]);
+        if (ok) rebuild_chain();
         break;
     }
     ui_lvgl_unlock();
@@ -545,6 +590,7 @@ void ui_live_set_visible(bool visible)
     if (!visible) {
         presets_close();
         settings_close_cb(NULL);
+        ui_editor_close();
     }
 }
 
@@ -556,6 +602,27 @@ void ui_live_apply_recipe(const fp_recipe_t *r)
 void ui_live_toast(const char *msg, uint32_t ms)
 {
     toast_show(msg, ms);
+}
+
+bool ui_live_editor(const char *fx_id, bool open)
+{
+    bool ok = true;
+    if (!ui_lvgl_lock(200)) return false;
+    if (open) ok = ui_editor_open(fx_id && fx_id[0] ? fx_registry_find(fx_id) : NULL);
+    else      ui_editor_close();
+    ui_lvgl_unlock();
+    return ok;
+}
+
+bool ui_live_set_param(const char *fx_id, const char *param_id, float value)
+{
+    const fx_desc_t *fx = fx_registry_find(fx_id);
+    int k = fx ? fx_param_index(fx, param_id) : -1;
+    if (k < 0 || !ui_lvgl_lock(200)) return false;
+    bool ok = frame_pipeline_set_param(fx, k, value);
+    ui_editor_sync();
+    ui_lvgl_unlock();
+    return ok;
 }
 
 bool ui_live_preset(int slot, bool save)

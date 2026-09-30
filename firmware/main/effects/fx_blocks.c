@@ -11,11 +11,11 @@
 enum { P_TILE, P_COUNT, P_MAX_DIST, P_SWAP, P_ASPECT };
 
 static const fx_param_t s_params[] = {
-    { "tile",     "Tile size (px)",   4, 256,  48 },
-    { "count",    "Tiles moved",      0, 400,  40 },
-    { "max_dist", "Max distance (px)",0, 1280, 200 },
-    { "swap",     "Swap (1) / copy (0)", 0, 1, 0 },
-    { "aspect",   "Width factor",     0.25f, 4, 2 },
+    { "tile",     "Tile size (px)",   4, 256,  48, 0 },
+    { "count",    "Tiles moved",      0, 400,  40, 0 },
+    { "max_dist", "Max distance (px)",0, 1280, 200, 0 },
+    { "swap",     "Swap instead of copy", 0, 1, 0, 1 },
+    { "aspect",   "Width factor",     0.25f, 4, 2, 0 },
 };
 
 static void from_amount(float a, float *p)

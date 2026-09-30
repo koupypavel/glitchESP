@@ -48,6 +48,7 @@ typedef struct {
     const char *id;        /* short machine name, e.g. "dx_r" */
     const char *name;      /* UI label */
     float min, max, def;
+    float step;            /* 0 = continuous; 1 with a 0..1 range = an on/off switch */
 } fx_param_t;
 
 /* Per-frame context. `seed` and `frame_no` fully determine the randomness. */

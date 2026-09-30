@@ -14,10 +14,10 @@
 enum { P_BITS_R, P_BITS_G, P_BITS_B, P_DITHER };
 
 static const fx_param_t s_params[] = {
-    { "bits_r", "Red bits",   1, 5, 2 },
-    { "bits_g", "Green bits", 1, 6, 2 },
-    { "bits_b", "Blue bits",  1, 5, 2 },
-    { "dither", "Dither",     0, 1, 1 },
+    { "bits_r", "Red bits",   1, 5, 2, 1 },
+    { "bits_g", "Green bits", 1, 6, 2, 1 },
+    { "bits_b", "Blue bits",  1, 5, 2, 1 },
+    { "dither", "Dither",     0, 1, 1, 1 },
 };
 
 static void from_amount(float a, float *p)

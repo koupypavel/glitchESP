@@ -77,10 +77,10 @@ static void FX_HOT warp_rows(const fx_frame_t *in, fx_frame_t *out, const float 
 enum { D_AMP, D_SCALE, D_SPEED, D_MORPH };
 
 static const fx_param_t s_drift_params[] = {
-    { "amp",   "Amplitude (px)",     0, 120, 30 },
-    { "scale", "Feature size (px)", 40, 800, 260 },
-    { "speed", "Speed",              0, 1, 0.3f },
-    { "morph", "Morph (irregular)",  0, 1, 0.5f },
+    { "amp",   "Amplitude (px)",     0, 120, 30, 0 },
+    { "scale", "Feature size (px)", 40, 800, 260, 0 },
+    { "speed", "Speed",              0, 1, 0.3f, 0 },
+    { "morph", "Morph (irregular)",  0, 1, 0.5f, 0 },
 };
 
 static void drift_from_amount(float a, float *p)
@@ -134,9 +134,9 @@ const fx_desc_t fx_drift = {
 enum { B_DEPTH, B_RATE, B_WOBBLE };
 
 static const fx_param_t s_breathe_params[] = {
-    { "depth",  "Zoom depth (%)",   0, 30, 8 },
-    { "rate",   "Breaths per min",  2, 60, 12 },
-    { "wobble", "Wobble",           0, 1, 0.3f },
+    { "depth",  "Zoom depth (%)",   0, 30, 8, 0 },
+    { "rate",   "Breaths per min",  2, 60, 12, 0 },
+    { "wobble", "Wobble",           0, 1, 0.3f, 0 },
 };
 
 static void breathe_from_amount(float a, float *p)

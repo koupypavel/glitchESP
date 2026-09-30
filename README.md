@@ -17,7 +17,7 @@ live, the shutter burns the effect into the saved photo or video, and every shot
   channel shift, scanline smear, bit crush, blocks, wave, pixel sort, tracers, hue drift,
   kaleido, diffraction, drift and breathe.
 - **One knob for "how broken".** An amount slider drives every active effect through its own
-  mapping; a seed button re-rolls the randomness.
+  mapping; a seed button re-rolls the randomness. Every parameter can also be set by hand.
 - **Photos**: hardware JPEG saved as `GLITCH/IMG_nnnn.jpg` with a `.json` sidecar listing
   the effect chain, parameters, seed and frame number. At 1× zoom the sensor is re-read at
   full resolution for the shot and the effects are applied again at that size: 1088×1920
@@ -37,6 +37,7 @@ live, the shutter burns the effect into the saved photo or video, and every shot
 |---|---|
 | Effect chips (bottom bar) | Toggle an effect; up to three run in order |
 | Amount slider | Intensity of all active effects |
+| Edit button (pencil) | A slider or switch for every parameter of each active effect, with a reset |
 | Seed button (arrows) | New random seed |
 | Presets button (list) | Eight slots: the disk icon stores the current look, tapping a row recalls it |
 | Gallery button (picture) | Browse with the arrows or by swiping; play, "Use look", delete (tap twice), close |
@@ -98,10 +99,10 @@ what was learned about performance on the ESP32-P4.
 
 ## Status
 
-Working on the device: preview, all twelve effects on both cores, zoom, settings, and
-photos (including full-resolution stills) and video saved to the card. Still planned: per-parameter effect
-editing, a wired shutter button and rotary knob on the expansion header, and a smaller video
-format using the P4's H.264 encoder.
+Working on the device: preview, all twelve effects on both cores, parameter editing,
+presets, zoom, settings, photos (including full-resolution stills) and video saved to the
+card, and the gallery. Still planned: a wired shutter button and rotary knob on the
+expansion header, and a smaller video format using the P4's H.264 encoder.
 
 ## License
 

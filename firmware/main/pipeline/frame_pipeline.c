@@ -643,6 +643,21 @@ bool frame_pipeline_chain_is_temporal(void)
     return chain_is_temporal(&r.chain);
 }
 
+bool frame_pipeline_set_param(const fx_desc_t *fx, int index, float value)
+{
+    bool found = false;
+    if (!fx || index < 0 || index >= fx->n_params) return false;
+    taskENTER_CRITICAL(&s_p.lock);
+    for (int i = 0; i < s_p.recipe.chain.count; i++) {
+        if (s_p.recipe.chain.slots[i].fx == fx) {
+            s_p.recipe.chain.slots[i].params[index] = value;
+            found = true;
+        }
+    }
+    taskEXIT_CRITICAL(&s_p.lock);
+    return found;
+}
+
 void frame_pipeline_set_amount(float amount)
 {
     if (amount < 0.0f) amount = 0.0f;

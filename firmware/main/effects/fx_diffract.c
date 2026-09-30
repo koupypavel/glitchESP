@@ -16,11 +16,11 @@
 enum { P_THRESH, P_LENGTH, P_SPREAD, P_INTENSITY, P_BOTH };
 
 static const fx_param_t s_params[] = {
-    { "thresh",    "Bright threshold", 0, 255, 170 },
-    { "length",    "Streak length",    0, 1, 0.6f },
-    { "spread",    "Colour spread",    0, 24, 6 },
-    { "intensity", "Intensity",        0, 2, 1.0f },
-    { "both",      "Both directions",  0, 1, 1 },
+    { "thresh",    "Bright threshold", 0, 255, 170, 0 },
+    { "length",    "Streak length",    0, 1, 0.6f, 0 },
+    { "spread",    "Colour spread",    0, 24, 6, 0 },
+    { "intensity", "Intensity",        0, 2, 1.0f, 0 },
+    { "both",      "Both directions",  0, 1, 1, 1 },
 };
 
 static void from_amount(float a, float *p)

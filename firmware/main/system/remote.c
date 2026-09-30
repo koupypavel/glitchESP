@@ -168,6 +168,20 @@ static void handle(char *line)
         } else if (!strcmp(what, "clear")) {
             printf("preset clear %d: %s\n", n, esp_err_to_name(presets_clear(n - 1)));
         }
+    } else if (!strcmp(line, "edit")) {
+        /* edit [fx id] | edit close: the parameter editor */
+        bool open = strcmp(arg, "close") != 0;
+        printf("edit %s: %s\n", arg, ui_live_editor(open ? arg : "", open) ? "ok" : "no active effect");
+    } else if (!strcmp(line, "param")) {
+        /* param <fx id> <param id> <value> */
+        char fx_id[16] = "", param_id[16] = "";
+        float v = 0;
+        if (sscanf(arg, "%15s %15s %f", fx_id, param_id, &v) == 3) {
+            printf("param %s.%s = %.3f: %s\n", fx_id, param_id, (double)v,
+                   ui_live_set_param(fx_id, param_id, v) ? "ok" : "unknown, or the effect is not active");
+        } else {
+            printf("usage: param <fx id> <param id> <value>\n");
+        }
     } else if (!strcmp(line, "gallery")) {
         if (!strcmp(arg, "open"))        gallery_open();
         else if (!strcmp(arg, "close"))  gallery_close();
@@ -215,7 +229,7 @@ static void handle(char *line)
     } else if (!strcmp(line, "sdbench")) {
         cmd_sdbench();
     } else if (!strcmp(line, "help")) {
-        printf("commands: photo | video | dump | stilldump | uidump | zoom [1..6] | fx <id> | amount <0..1> | recipe | "
+        printf("commands: photo | video | dump | stilldump | uidump | zoom [1..6] | fx <id> | amount <0..1> | edit [fx]|close | param <fx> <id> <value> | recipe | "
                "preset list|save N|load N|clear N|panel 0/1 | settings 0/1 | gallery open|close|next|prev|play|look|delete | ae | ls | get <file> | reg <hex> [hex] | tele <x0> <y0> | sdbench\n");
     } else {
         printf("unknown command '%s' (try help)\n", line);

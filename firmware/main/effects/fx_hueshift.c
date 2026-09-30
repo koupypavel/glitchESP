@@ -16,10 +16,10 @@
 enum { P_ANGLE, P_SPEED, P_SAT, P_CONTRAST };
 
 static const fx_param_t s_params[] = {
-    { "angle",    "Hue offset (deg)",   0, 360, 0 },
-    { "speed",    "Drift (deg/frame)",  0,  30, 3 },
-    { "sat",      "Saturation x",     0.5f, 3, 1.6f },
-    { "contrast", "Contrast x",       0.5f, 2, 1.1f },
+    { "angle",    "Hue offset (deg)",   0, 360, 0, 0 },
+    { "speed",    "Drift (deg/frame)",  0,  30, 3, 0 },
+    { "sat",      "Saturation x",     0.5f, 3, 1.6f, 0 },
+    { "contrast", "Contrast x",       0.5f, 2, 1.1f, 0 },
 };
 
 static void from_amount(float a, float *p)

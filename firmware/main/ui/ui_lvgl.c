@@ -162,7 +162,7 @@ esp_err_t ui_lvgl_init(void)
         ESP_LOGW(TAG, "touch not available");
     }
 
-    BaseType_t ok = xTaskCreatePinnedToCore(lvgl_task, "lvgl", 8 * 1024, NULL, 5, NULL, 0);
+    BaseType_t ok = xTaskCreatePinnedToCore(lvgl_task, "lvgl", 8 * 1024, NULL, 13, NULL, 0);   /* above the effect worker (12): the controls stay responsive under load */
     ESP_RETURN_ON_FALSE(ok == pdPASS, ESP_FAIL, TAG, "task");
     ESP_LOGI(TAG, "LVGL %d.%d on core 0, partial buffer %d rows", lv_version_major(), lv_version_minor(), DRAW_ROWS);
     return ESP_OK;

@@ -18,12 +18,12 @@
 enum { P_LO, P_HI, P_VERTICAL, P_REVERSE, P_MIN_RUN, P_SKIP };
 
 static const fx_param_t s_params[] = {
-    { "lo",       "Luma low",         0, 255, 60 },
-    { "hi",       "Luma high",        0, 255, 200 },
-    { "vertical", "Vertical (1)",     0, 1, 1 },
-    { "reverse",  "Dark to bright",   0, 1, 0 },
-    { "min_run",  "Min run (px)",     2, 400, 12 },
-    { "skip",     "Skip chance",      0, 1, 0.0f },
+    { "lo",       "Luma low",         0, 255, 60, 0 },
+    { "hi",       "Luma high",        0, 255, 200, 0 },
+    { "vertical", "Vertical",         0, 1, 1, 1 },
+    { "reverse",  "Dark to bright",   0, 1, 0, 1 },
+    { "min_run",  "Min run (px)",     2, 400, 12, 0 },
+    { "skip",     "Skip chance",      0, 1, 0.0f, 0 },
 };
 
 static void from_amount(float a, float *p)

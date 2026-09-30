@@ -14,12 +14,12 @@
 enum { P_AMP_X, P_LEN_X, P_AMP_Y, P_LEN_Y, P_SPEED, P_NOISE };
 
 static const fx_param_t s_params[] = {
-    { "amp_x", "X amplitude (px)",   0, 200, 24 },
-    { "len_x", "X wavelength (px)",  4, 2000, 180 },
-    { "amp_y", "Y amplitude (px)",   0, 200, 0 },
-    { "len_y", "Y wavelength (px)",  4, 2000, 240 },
-    { "speed", "Drift per frame",    0, 1, 0.08f },
-    { "noise", "Row noise",          0, 1, 0.2f },
+    { "amp_x", "X amplitude (px)",   0, 200, 24, 0 },
+    { "len_x", "X wavelength (px)",  4, 2000, 180, 0 },
+    { "amp_y", "Y amplitude (px)",   0, 200, 0, 0 },
+    { "len_y", "Y wavelength (px)",  4, 2000, 240, 0 },
+    { "speed", "Drift per frame",    0, 1, 0.08f, 0 },
+    { "noise", "Row noise",          0, 1, 0.2f, 0 },
 };
 
 static void from_amount(float a, float *p)

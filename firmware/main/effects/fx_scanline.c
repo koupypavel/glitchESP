@@ -15,11 +15,11 @@
 enum { P_BAND, P_MAX_OFF, P_SHIFT_PROB, P_HOLD_PROB, P_HOLD_LEN };
 
 static const fx_param_t s_params[] = {
-    { "band",       "Band height",     1, 128,  6 },
-    { "max_off",    "Max shift (px)",  0, 720, 120 },
-    { "shift_prob", "Shift chance",    0,   1, 0.35f },
-    { "hold_prob",  "Smear chance",    0,   1, 0.15f },
-    { "hold_len",   "Smear length",    1,  64, 8 },
+    { "band",       "Band height",     1, 128,  6, 0 },
+    { "max_off",    "Max shift (px)",  0, 720, 120, 0 },
+    { "shift_prob", "Shift chance",    0,   1, 0.35f, 0 },
+    { "hold_prob",  "Smear chance",    0,   1, 0.15f, 0 },
+    { "hold_len",   "Smear length",    1,  64, 8, 0 },
 };
 
 static void from_amount(float a, float *p)
