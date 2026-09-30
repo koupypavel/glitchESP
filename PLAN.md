@@ -2,6 +2,11 @@
 
 Implementation plan, draft for review. Written 2026-09-29.
 
+> **Historical document.** This is the plan the project started from. Milestones M0–M2 and
+> parts of M3 are done and several decisions changed along the way (the preview does not use
+> the PPA, effects run on both cores, video is Motion-JPEG). For the current state see
+> `README.md`, `firmware/README.md` and `docs/EFFECTS.md`.
+
 Everything in section 2 was checked against the schematic PDF, the Waveshare wiki, the
 unzipped example repo in `doc/examples_unzipped/`, and the ESP32-P4 datasheet in `doc/`.
 Section 3 is web research. Sections 4 onward are proposals: please push back on anything.

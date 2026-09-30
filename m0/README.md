@@ -10,8 +10,8 @@ board before writing any glitchESP code. Two unmodified Waveshare examples are u
 
 ## Toolchain
 
-ESP-IDF v5.5.5 is installed at `%USERPROFILE%\esp\v5.5.5\esp-idf` (same layout as the
-older 5.1.4 and 5.3 installs). Tools live in `%USERPROFILE%\.espressif`.
+ESP-IDF v5.5.5 is expected at `%USERPROFILE%\esp\v5.5.5\esp-idf`, with its tools in
+`%USERPROFILE%\.espressif` (the default install locations).
 
 Open an IDF shell in PowerShell:
 
@@ -35,7 +35,8 @@ profile. esptool refuses a `rev3_x` image on this chip ("bootloader requires chi
 
 1. Connect the board's **USB-UART** Type-C port (not the OTG one). Find the COM port:
    `Get-CimInstance Win32_PnPEntity | ? Name -match 'COM\d+'`.
-2. Silicon revision: `esptool.py --port COMx chip_id` → expect `Chip is ESP32-P4 (revision v3.x)`.
+2. Silicon revision: `esptool.py --port COMx chip_id` prints `Chip is ESP32-P4 (revision vX.Y)`;
+   pick the matching profile (`rev1_3` or `rev3_x`).
 3. Flash 09, then capture the log: `python serial_capture.py COMx 10` (run with the IDF python env).
    Expect `app_video: Video Stream Start` and no `E (` lines. The LCD shows the camera image.
 4. Flash 08. The LVGL benchmark runs; touch is verified in M1 with a widgets demo if needed.

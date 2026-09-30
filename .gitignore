@@ -14,6 +14,8 @@ m0/*/sdkconfig.old
 doc/examples_esp32p4.zip
 doc/examples_unzipped/
 doc/schematic_text.txt
+# Espressif datasheet: copyrighted, linked from doc/README.md instead of redistributed
+doc/esp32-p4_datasheet_en.pdf
 
 # PC harness output and raw images
 tools/fxlab/out/
