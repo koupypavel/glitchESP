@@ -49,9 +49,10 @@ static void prepare(const float *p, const fx_ctx_t *ctx)
 static void FX_HOT apply(const fx_frame_t *in, fx_frame_t *out, const float *p, const fx_ctx_t *ctx)
 {
     int W = in->w, H = in->h;
-    int amp_x = (int)p[P_AMP_X], amp_y = (int)p[P_AMP_Y];
-    float len_x = p[P_LEN_X] < 4 ? 4 : p[P_LEN_X];
-    float len_y = p[P_LEN_Y] < 4 ? 4 : p[P_LEN_Y];
+    float k = fx_scale(in);
+    int amp_x = (int)(p[P_AMP_X] * k), amp_y = (int)(p[P_AMP_Y] * k);
+    float len_x = (p[P_LEN_X] < 4 ? 4 : p[P_LEN_X]) * k;
+    float len_y = (p[P_LEN_Y] < 4 ? 4 : p[P_LEN_Y]) * k;
     float phase = (float)ctx->frame_no * p[P_SPEED];
     float noise = fx_clampf(p[P_NOISE], 0, 1);
 

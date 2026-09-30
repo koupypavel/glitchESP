@@ -168,6 +168,10 @@ orbism (radial block displacement), melting (feedback warp that accumulates).
 1. Copy `fx_bitcrush.c` to `fx_yourname.c`. Fill the parameter table, `from_amount()`, `apply()`.
    Honour `ctx->y0`/`ctx->y1` and seed randomness per band/row with `fx_rng_init_at()`; then
    set `row_parallel = true` so both cores share the work. Per-frame tables go in `prepare()`.
+   Parameters measured in pixels (shifts, band heights, tile sizes, wavelengths) are defined
+   for a 720-pixel-wide frame: pass them through `fx_px(in, value, min)` or multiply by
+   `fx_scale(in)`. The same chain runs on 360-wide preview frames, 720-wide full frames and
+   1088-wide stills, and this is what makes it look the same on all three.
 2. Add `extern const fx_desc_t fx_yourname;` and the pointer to the array in `fx_registry.c`.
 3. Add the file to `firmware/main/CMakeLists.txt`.
 4. Build the PC harness and look at it:

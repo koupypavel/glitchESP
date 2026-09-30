@@ -84,7 +84,7 @@ static void FX_HOT apply(const fx_frame_t *in, fx_frame_t *out, const float *p, 
     if (hi < lo) { int t = lo; lo = hi; hi = t; }
     int vertical = p[P_VERTICAL] >= 0.5f;
     int reverse = p[P_REVERSE] >= 0.5f;
-    int min_run = fx_clampi((int)p[P_MIN_RUN], 2, MAX_LINE);
+    int min_run = fx_clampi(fx_px(in, p[P_MIN_RUN], 2), 2, MAX_LINE);
     float skip = fx_clampf(p[P_SKIP], 0, 1);
     int W = in->w, H = in->h;
     if (H > MAX_LINE) H = MAX_LINE;

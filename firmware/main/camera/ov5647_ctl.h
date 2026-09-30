@@ -20,6 +20,13 @@ extern "C" {
 #define OV5647_VTS_DEFAULT  1732
 #define OV5647_EXPO_MAX(vts)  ((vts) - 8)
 
+/* White balance (sensor side). Gains are 12-bit, 0x400 = 1x, in the order R, G, B (high byte
+ * first). CURRENT reads back what the auto white balance has settled on. */
+#define OV5647_REG_WB_CTRL     0x5180
+#define OV5647_WB_MANUAL_EN    0x08
+#define OV5647_REG_WB_MANUAL   0x5186   /* 6 bytes */
+#define OV5647_REG_WB_CURRENT  0x5190   /* 6 bytes, read only */
+
 esp_err_t ov5647_ctl_init(void);
 esp_err_t ov5647_ctl_read(uint16_t reg, uint8_t *val);
 esp_err_t ov5647_ctl_write(uint16_t reg, uint8_t val);

@@ -142,6 +142,18 @@ static void run_effect(const fx_desc_t *fx, const fx_frame_t *in, fx_frame_t *ou
     }
 }
 
+fx_frame_t *fx_chain_apply_pingpong(const fx_chain_t *c, fx_frame_t *a, fx_frame_t *b, const fx_ctx_t *ctx)
+{
+    fx_frame_t *src = a, *dst = b;
+    for (int i = 0; i < c->count; i++) {
+        const fx_slot_t *s = &c->slots[i];
+        if (!s->enabled || !s->fx) continue;
+        run_effect(s->fx, src, dst, s->params, ctx);
+        fx_frame_t *t = src; src = dst; dst = t;
+    }
+    return src;
+}
+
 void FX_HOT fx_chain_apply(const fx_chain_t *c, const fx_frame_t *in, fx_frame_t *out, fx_frame_t *tmp,
                            const fx_ctx_t *ctx)
 {

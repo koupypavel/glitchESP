@@ -61,8 +61,8 @@ static void FX_HOT copy_row_shifted(const uint16_t *src, uint16_t *dst, int w, i
 
 static void FX_HOT apply(const fx_frame_t *in, fx_frame_t *out, const float *p, const fx_ctx_t *ctx)
 {
-    int band = fx_clampi((int)p[P_BAND], 1, 4096);
-    int max_off = fx_clampi((int)p[P_MAX_OFF], 0, (int)in->w - 1);
+    int band = fx_clampi(fx_px(in, p[P_BAND], 1), 1, 4096);
+    int max_off = fx_clampi(fx_px(in, p[P_MAX_OFF], 0), 0, (int)in->w - 1);
     float shift_prob = fx_clampf(p[P_SHIFT_PROB], 0, 1);
     float hold_prob = fx_clampf(p[P_HOLD_PROB], 0, 1);
     int hold_len = fx_clampi((int)p[P_HOLD_LEN], 1, 4096);

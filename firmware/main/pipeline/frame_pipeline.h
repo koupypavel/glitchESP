@@ -72,7 +72,8 @@ esp_err_t frame_pipeline_request_capture(uint8_t *dst, size_t dst_len, fp_captur
 
 /* ---- recipe control (thread-safe, callable from the UI) ---- */
 void frame_pipeline_set_chain(const fx_chain_t *chain);   /* replaces the chain, keeps amount/seed */
-void frame_pipeline_get_recipe(fp_recipe_t *out);
+void frame_pipeline_get_recipe(fp_recipe_t *out);        /* frame_no = the frame on screen */
+bool frame_pipeline_chain_is_temporal(void);              /* an active effect needs the previous frame */
 void frame_pipeline_set_amount(float amount);             /* re-maps every slot via from_amount */
 void frame_pipeline_set_seed(uint32_t seed);
 uint32_t frame_pipeline_reroll(void);                     /* new random seed, returns it */

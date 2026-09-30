@@ -55,12 +55,13 @@ static void band_jitter(const fx_ctx_t *ctx, int band_idx, int jmax, int *jr, in
 
 static void FX_HOT apply(const fx_frame_t *in, fx_frame_t *out, const float *p, const fx_ctx_t *ctx)
 {
-    int dxr = (int)lroundf(p[P_DX_R]), dyr = (int)lroundf(p[P_DY_R]);
-    int dxg = (int)lroundf(p[P_DX_G]), dyg = (int)lroundf(p[P_DY_G]);
-    int dxb = (int)lroundf(p[P_DX_B]), dyb = (int)lroundf(p[P_DY_B]);
+    float k = fx_scale(in);                       /* pixel parameters are for a 720-wide frame */
+    int dxr = (int)lroundf(p[P_DX_R] * k), dyr = (int)lroundf(p[P_DY_R] * k);
+    int dxg = (int)lroundf(p[P_DX_G] * k), dyg = (int)lroundf(p[P_DY_G] * k);
+    int dxb = (int)lroundf(p[P_DX_B] * k), dyb = (int)lroundf(p[P_DY_B] * k);
     float jitter = fx_clampf(p[P_JITTER], 0, 1);
-    int band = fx_clampi((int)p[P_BAND], 1, 4096);
-    int jmax = (int)(jitter * 60.0f);
+    int band = fx_clampi(fx_px(in, p[P_BAND], 1), 1, 4096);
+    int jmax = (int)(jitter * 60.0f * k);
     int W = in->w, H = in->h;
 
     int cur_band = -1, jr = 0, jg = 0, jb = 0;

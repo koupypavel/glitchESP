@@ -58,11 +58,27 @@ The screen is 9:16, the sensor 4:3, so the picture is always a slice of the sens
 | 1.0× | wide: 2×2 binning, 640×960 frame | 540×960 binned pixels (1080×1920 on the sensor), enlarged 1.33× |
 | 1.5× | 1:1: no binning, 800×1280 frame | 720×1280 sensor pixels, one per screen pixel |
 | 2× to 6× | 1:1 | a smaller rectangle, enlarged by the bilinear scaler |
+| photo at 1.0× | still: no binning, 1088×1920 frame | the wide view with every sensor pixel |
 
 The wide mode sees more, gathers about twice the light per pixel and is much less noisy;
 the 1:1 mode resolves more detail in a narrower view. Switching between them restarts the
-camera stream (about 50 ms). Both modes are built at run time from the driver's 800×1280
+camera stream (about 50 ms). All modes are built at run time from the driver's 800×1280
 register table plus a few overrides (window, binning, frame timing), see `cam_ctrl.c`.
+
+## Photos
+
+Zoomed in, a photo is the frame on screen (720×1280), rendered at full resolution for that
+one frame even if the preview runs the effects at half resolution.
+
+At zoom 1.0 the preview only has binned pixels, so the shutter does more (it can be turned
+off in the settings): the preview stops, the sensor is switched to the 1088×1920 mode, the
+seventh frame is kept, the effect chain runs on it with the seed and frame number of the
+last preview frame, the JPEG is written, and the preview resumes. This takes about 0.7 s
+without effects and 1 to 1.5 s with a heavy chain. The five preview buffers are one 10 MB
+block of PSRAM that doubles as the two 4.2 MB buffers this needs. Exposure time, gain
+(doubled, because binning collects twice the light) and white balance are carried over from
+the preview so the photo matches it. Effects that need the previous frame (tracers) have no
+history at that size, so with those the on-screen frame is saved instead.
 
 ## Video
 
@@ -78,8 +94,8 @@ The console UART (115200 baud) accepts text commands, so the camera can be drive
 checked from a PC:
 
 ```
-photo | video | dump | zoom [1..6] | fx <id> | amount <0..1> | ls | get <file>
-reg <hex> [hex] | tele <x0> <y0> | sdbench | help
+photo | video | dump | stilldump | zoom [1..6] | fx <id> | amount <0..1> | ae
+ls | get <file> | reg <hex> [hex] | tele <x0> <y0> | sdbench | help
 ```
 
 `serial_capture.py` resets the board, logs for a while and can send commands at given
@@ -103,5 +119,10 @@ python decode_jpeg_dump.py run.log frame.jpg
   mode reads a 2110-pixel-wide window that is not centered on the sensor, so its picture is
   off-center; `cam_ctrl.c` uses a window just larger than the output, centered.
 - **The hardware ISP accepts at most 1920 pixels per line**, so the full 2592-wide sensor
-  frame cannot go through it.
+  frame cannot go through it. 1088×1920 is the largest frame with the screen's shape.
+- **The sensor's auto white balance starts from neutral after every mode change** and takes
+  about a second to settle; until then the picture is green. Its settled gains can be read
+  back (0x5190..0x5195) and applied as manual gains (0x5186..0x518B, enable bit 3 of
+  0x5180). `auto_exposure.c` does that for the first 40 frames of a new mode, and the auto
+  white balance keeps converging underneath, so handing back to it is seamless.
 - More measurements (memory bus limits, per-effect timings) are in `../docs/EFFECTS.md`.

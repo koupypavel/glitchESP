@@ -86,14 +86,14 @@ static void nvs_store_u32(const char *key, uint32_t v)
     }
 }
 
-static void write_recipe_json(FILE *f, const char *file, uint32_t jpeg_bytes, int quality, uint32_t seq,
-                              const fp_recipe_t *r, const char *extra)
+static void write_recipe_json(FILE *f, const char *file, uint32_t w, uint32_t h, uint32_t jpeg_bytes, int quality,
+                              uint32_t seq, const fp_recipe_t *r, const char *extra)
 {
     fprintf(f,
             "{\n"
             "  \"file\": \"%s\",\n"
-            "  \"width\": %d,\n"
-            "  \"height\": %d,\n"
+            "  \"width\": %lu,\n"
+            "  \"height\": %lu,\n"
             "  \"jpeg_bytes\": %lu,\n"
             "  \"jpeg_quality\": %d,\n"
             "  \"frame_seq\": %lu,\n"
@@ -105,7 +105,7 @@ static void write_recipe_json(FILE *f, const char *file, uint32_t jpeg_bytes, in
             "  \"seed\": %lu,\n"
             "  \"frame_no\": %lu,\n"
             "  \"effects\": [",
-            file, FP_OUT_W, FP_OUT_H, (unsigned long)jpeg_bytes, quality, (unsigned long)seq,
+            file, (unsigned long)w, (unsigned long)h, (unsigned long)jpeg_bytes, quality, (unsigned long)seq,
             (long long)(esp_timer_get_time() / 1000), cam_ctrl_mode_name(), extra ? extra : "", (double)r->zoom,
             (double)r->amount, (unsigned long)r->seed, (unsigned long)r->frame_no);
     int written = 0;
@@ -122,7 +122,8 @@ static void write_recipe_json(FILE *f, const char *file, uint32_t jpeg_bytes, in
     fprintf(f, "%s]\n}\n", written ? "\n  " : "");
 }
 
-static void write_sidecar(const char *media_path, uint32_t bytes, int quality, uint32_t seq, const char *extra)
+static void write_sidecar(const char *media_path, uint32_t w, uint32_t h, uint32_t bytes, int quality, uint32_t seq,
+                          const char *extra)
 {
     char path[64];
     strlcpy(path, media_path, sizeof(path));
@@ -134,21 +135,50 @@ static void write_sidecar(const char *media_path, uint32_t bytes, int quality, u
         return;
     }
     const char *name = strrchr(media_path, '/') ? strrchr(media_path, '/') + 1 : media_path;
-    write_recipe_json(f, name, bytes, quality, seq, &s_c.recipe, extra);
+    write_recipe_json(f, name, w, h, bytes, quality, seq, &s_c.recipe, extra);
     fclose(f);
 }
 
-static esp_err_t encode(const uint8_t *rgb565, int quality, uint32_t *out_size)
+static esp_err_t encode_wh(const uint8_t *rgb565, uint32_t w, uint32_t h, int quality, uint32_t *out_size)
 {
     jpeg_encode_cfg_t cfg = {
-        .width = FP_OUT_W,
-        .height = FP_OUT_H,
+        .width = w,
+        .height = h,
         .src_type = JPEG_ENCODE_IN_FORMAT_RGB565,
         .sub_sample = JPEG_DOWN_SAMPLING_YUV420,
         .image_quality = quality,
         .pixel_reverse = false,
     };
-    return jpeg_encoder_process(s_c.enc, &cfg, rgb565, FP_OUT_BYTES, s_c.jpg_buf, s_c.jpg_len, out_size);
+    return jpeg_encoder_process(s_c.enc, &cfg, rgb565, w * h * 2, s_c.jpg_buf, s_c.jpg_len, out_size);
+}
+
+static esp_err_t encode(const uint8_t *rgb565, int quality, uint32_t *out_size)
+{
+    return encode_wh(rgb565, FP_OUT_W, FP_OUT_H, quality, out_size);
+}
+
+/* Write the encoded JPEG in jpg_buf as the next IMG_nnnn.jpg plus its sidecar. */
+static void store_still(capture_result_t *res, uint32_t out_size, uint32_t w, uint32_t h, int quality)
+{
+    uint32_t n = s_c.count + 1;
+    snprintf(res->path, sizeof(res->path), CAPTURE_DIR "/IMG_%04lu.jpg", (unsigned long)n);
+    sd_writer_t wr;
+    if (sdw_open(&wr, res->path) != ESP_OK) {
+        res->error = "file open failed";
+        return;
+    }
+    esp_err_t e1 = sdw_write(&wr, s_c.jpg_buf, out_size);
+    esp_err_t e2 = sdw_close(&wr);
+    if (e1 != ESP_OK || e2 != ESP_OK) {
+        res->error = "write failed";
+        ESP_LOGE(TAG, "%s: %s", res->error, res->path);
+        return;
+    }
+    write_sidecar(res->path, w, h, out_size, quality, s_c.seq, NULL);
+    s_c.count = n;
+    nvs_store_u32(NVS_KEY_COUNT, n);
+    res->ok = true;
+    res->jpeg_bytes = out_size;
 }
 
 /* Runs in the camera task: the snapshot is complete, queue the still job. */
@@ -199,25 +229,7 @@ static void do_still(void)
         ESP_LOGW(TAG, "encoded %lu bytes but no SD card mounted", (unsigned long)out_size);
         if (s_c.serial_dump) dump_jpeg_serial(out_size);
     } else {
-        uint32_t n = s_c.count + 1;
-        snprintf(res.path, sizeof(res.path), CAPTURE_DIR "/IMG_%04lu.jpg", (unsigned long)n);
-        sd_writer_t w;
-        if (sdw_open(&w, res.path) != ESP_OK) {
-            res.error = "file open failed";
-        } else {
-            esp_err_t wr = sdw_write(&w, s_c.jpg_buf, out_size);
-            esp_err_t cl = sdw_close(&w);
-            if (wr != ESP_OK || cl != ESP_OK) {
-                res.error = "write failed";
-                ESP_LOGE(TAG, "%s: %s", res.error, res.path);
-            } else {
-                write_sidecar(res.path, out_size, quality, s_c.seq, NULL);
-                s_c.count = n;
-                nvs_store_u32(NVS_KEY_COUNT, n);
-                res.ok = true;
-                res.jpeg_bytes = out_size;
-            }
-        }
+        store_still(&res, out_size, FP_OUT_W, FP_OUT_H, quality);
     }
     res.write_ms = (uint32_t)((esp_timer_get_time() - t1) / 1000);
     if (res.ok) {
@@ -265,7 +277,7 @@ static void do_video_stop(void)
             char extra[64];
             snprintf(extra, sizeof(extra), "  \"frames\": %lu,\n  \"duration_ms\": %lu,\n",
                      (unsigned long)res.frames, (unsigned long)res.duration_ms);
-            write_sidecar(s_c.vpath, 0, VIDEO_JPEG_QUALITY, s_c.seq, extra);
+            write_sidecar(s_c.vpath, FP_OUT_W, FP_OUT_H, 0, VIDEO_JPEG_QUALITY, s_c.seq, extra);
         }
     } else {
         res.error = "no file";
@@ -343,6 +355,53 @@ esp_err_t capture_trigger(void)
     esp_err_t ret = frame_pipeline_request_capture(s_c.raw_buf, s_c.raw_len, on_snapshot, NULL);
     if (ret != ESP_OK) s_c.busy = false;
     return ret;
+}
+
+esp_err_t capture_begin_external(void)
+{
+    if (s_c.busy || s_c.rec_active) return ESP_ERR_INVALID_STATE;
+    s_c.busy = true;
+    return ESP_OK;
+}
+
+void capture_finish_external(const uint8_t *rgb565, uint32_t w, uint32_t h, const fp_recipe_t *recipe, bool dump)
+{
+    capture_result_t res = { 0 };
+    if (!rgb565) {
+        res.error = "camera did not deliver";
+    } else {
+        int64_t t0 = esp_timer_get_time();
+        uint32_t out_size = 0;
+        int quality = dump ? CAPTURE_DUMP_QUALITY : settings_get()->jpeg_quality;
+        s_c.recipe = *recipe;
+        s_c.seq = recipe->frame_no;
+        esp_err_t ret = encode_wh(rgb565, w, h, quality, &out_size);
+        if (ret != ESP_OK && quality > 70) {                 /* most likely the output buffer: try smaller */
+            quality = 70;
+            ret = encode_wh(rgb565, w, h, quality, &out_size);
+        }
+        int64_t t1 = esp_timer_get_time();
+        res.encode_ms = (uint32_t)((t1 - t0) / 1000);
+        if (ret != ESP_OK) {
+            res.error = "JPEG encode failed";
+            ESP_LOGE(TAG, "%s: %s", res.error, esp_err_to_name(ret));
+        } else if (dump) {
+            res.error = "sent over serial";
+            dump_jpeg_serial(out_size);
+        } else if (!s_c.sd_ok) {
+            res.error = "no SD card";
+        } else {
+            store_still(&res, out_size, w, h, quality);
+        }
+        res.write_ms = (uint32_t)((esp_timer_get_time() - t1) / 1000);
+        if (res.ok) {
+            ESP_LOGI(TAG, "saved %s (%lux%lu, %lu bytes, encode %lu ms, write %lu ms)", res.path,
+                     (unsigned long)w, (unsigned long)h, (unsigned long)res.jpeg_bytes,
+                     (unsigned long)res.encode_ms, (unsigned long)res.write_ms);
+        }
+    }
+    s_c.busy = false;
+    if (s_c.done_cb) s_c.done_cb(&res, s_c.user);
 }
 
 esp_err_t capture_trigger_dump(void)

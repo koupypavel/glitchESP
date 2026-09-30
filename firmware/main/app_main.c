@@ -64,7 +64,11 @@ static void on_video(void *user)
 static void on_shutter(void *user)
 {
     (void)user;
-    esp_err_t ret = capture_trigger();
+    /* At zoom 1 the sensor can be re-read at full resolution for the photo (about a second);
+     * otherwise the frame on screen is saved. */
+    esp_err_t ret = ESP_ERR_INVALID_STATE;
+    if (settings_get()->photo_hires && cam_ctrl_still_available()) ret = cam_ctrl_take_still(false);
+    if (ret != ESP_OK) ret = capture_trigger();
     if (ret == ESP_OK) {
         ui_live_on_capture_started();
     } else {
@@ -118,14 +122,13 @@ void app_main(void)
     }
     size_t cache_line = 0;
     ESP_ERROR_CHECK(esp_cache_get_alignment(MALLOC_CAP_SPIRAM, &cache_line));
-    /* Buffers are sized for the largest sensor mode (800x1280, what the driver starts in). */
-    void *cam_buf[FP_CAM_BUFS];
-    for (int i = 0; i < FP_CAM_BUFS; i++) {
-        cam_buf[i] = heap_caps_aligned_calloc(cache_line, 1, app_video_get_buf_size(), MALLOC_CAP_SPIRAM);
-        if (!cam_buf[i]) {
-            ESP_LOGE(TAG, "camera buffer alloc failed");
-            return;
-        }
+    /* One region for all camera buffers: five preview frames of the largest preview mode
+     * (800x1280, what the driver starts in), or two 1088x1920 frames for a still. */
+    size_t cam_buf_len = (app_video_get_buf_size() + cache_line - 1) & ~(cache_line - 1);
+    void *cam_block = heap_caps_aligned_calloc(cache_line, 1, cam_buf_len * FP_CAM_BUFS, MALLOC_CAP_SPIRAM);
+    if (!cam_block) {
+        ESP_LOGE(TAG, "camera buffer alloc failed");
+        return;
     }
 
     /*
@@ -135,7 +138,7 @@ void app_main(void)
      */
     ESP_ERROR_CHECK(settings_init());
     ESP_ERROR_CHECK(app_video_register_frame_operation_cb(frame_pipeline_on_camera_frame));
-    ESP_ERROR_CHECK(cam_ctrl_init(cam_fd, cam_buf, FP_CAM_BUFS));
+    ESP_ERROR_CHECK(cam_ctrl_init(cam_fd, cam_block, cam_buf_len, FP_CAM_BUFS));
     ESP_ERROR_CHECK(cam_ctrl_start());                                /* camera + pipeline on core 1 */
 
     /* Shutter */

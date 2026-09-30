@@ -2,9 +2,11 @@
 #include <stdlib.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "esp_log.h"
 #include "esp_check.h"
 #include "esp_timer.h"
+#include "esp_cache.h"
 #include "ov5647_types.h"
 #include "cam_ctrl.h"
 #include "app_video.h"
@@ -13,6 +15,7 @@
 #include "frame_pipeline.h"
 #include "capture.h"
 #include "settings.h"
+#include "fx.h"
 
 static const char *TAG = "cam";
 
@@ -20,17 +23,18 @@ static const char *TAG = "cam";
 #define R16(reg, v) { (reg), (uint8_t)((v) >> 8) }, { (reg) + 1, (uint8_t)((v) & 0xff) }
 
 /*
- * Both modes reuse the driver's own 800x1280 register table (clocks, analog settings, MIPI)
+ * All modes reuse the driver's own 800x1280 register table (clocks, analog settings, MIPI)
  * and override only geometry and timing: the entries below are appended to a copy of it,
  * and since registers are written in order the later value wins.
  *
- * Sensor array: 2624 x 1956, optical centre at (1312, 978).
+ * Sensor array: 2624 x 1956, optical centre at (1312, 978). The sensor takes its output
+ * from the middle of the readout window, so every window here is centred and only a few
+ * pixels larger than the output.
  * Pixel clock in this configuration: about 66.7 MHz (measured from the frame rate).
  */
 
-/* WIDE: 2x2 binning. Window 1296 x 1932 sensor pixels centred on the sensor -> 648 x 966
- * binned -> 640 x 960 output. Line 1896 clocks (28 us), 1760 lines per frame -> 20 fps,
- * longest exposure 50 ms. */
+/* WIDE: 2x2 binning. Window 1296 x 1932 sensor pixels -> 648 x 966 binned -> 640 x 960
+ * output. Line 1896 clocks (28 us), 1760 lines per frame -> 20 fps, longest exposure 50 ms. */
 #define WIDE_W      640
 #define WIDE_H      960
 #define WIDE_HTS    1896
@@ -55,15 +59,38 @@ static const ov5647_reginfo_t k_wide[] = {
     R16(0x380e, WIDE_VTS),
 };
 
-/* TELE: the driver's 800x1280 mode with faster frame timing, and with the readout window
- * shrunk to just the output size plus a small margin, centred on the sensor. (The sensor
- * takes the output from the middle of the window; the stock window is 2110 wide and sits
- * left of centre, so the two modes would not look at the same spot.) */
+/* TELE: the driver's 800x1280 mode with faster frame timing and a centred 816 x 1288 window
+ * (the stock window is 2110 wide and sits left of centre, so its picture is off-centre). */
 #define TELE_W      800
 #define TELE_H      1280
 #define TELE_COLS   816
 #define TELE_ROWS   1288
 static uint16_t s_tele_x0 = 904, s_tele_y0 = 332;       /* window origin, see build_tele() */
+
+/* STILL: no binning, 1088 x 1920: the same view as WIDE with every sensor pixel, for one
+ * photo at a time. 1952 lines of 35.9 us -> 14 fps, longest exposure 70 ms. */
+#define STILL_W     1088
+#define STILL_H     1920
+#define STILL_HTS   OV5647_HTS_FAST
+#define STILL_VTS   1952
+#define STILL_X0    760
+#define STILL_Y0    12
+static const ov5647_reginfo_t k_still[] = {
+    R16(0x3800, STILL_X0),
+    R16(0x3802, STILL_Y0),
+    R16(0x3804, STILL_X0 + STILL_W + 16 - 1),
+    R16(0x3806, STILL_Y0 + STILL_H + 8 - 1),
+    R16(0x3808, STILL_W),
+    R16(0x380a, STILL_H),
+    R16(0x380c, STILL_HTS),
+    R16(0x380e, STILL_VTS),
+};
+#define STILL_BYTES         ((size_t)STILL_W * STILL_H * 2)
+#define STILL_BUFS          2
+#define STILL_SET_FRAME     2       /* exposure/gain are written once this frame has arrived */
+#define STILL_KEEP_FRAME    7       /* ...and this one is the photo */
+
+enum { MODE_STILL = CAM_MODE_COUNT, MODE_TOTAL };
 
 typedef struct {
     const char *name;
@@ -71,22 +98,33 @@ typedef struct {
     ov5647_reginfo_t *regs;
     uint32_t view_base_w;           /* camera pixels across the screen at zoom 1.0 */
     uint32_t hts, vts;
+    uint32_t sensitivity;           /* relative light per output pixel: binning collects about twice as much (measured) */
 } mode_desc_t;
 
-static mode_desc_t s_mode[CAM_MODE_COUNT] = {
-    [CAM_MODE_WIDE] = { .name = "binned 2x2, 640x960", .view_base_w = 540, .hts = WIDE_HTS, .vts = WIDE_VTS },
-    [CAM_MODE_TELE] = { .name = "1:1, 800x1280", .view_base_w = 1080, .hts = OV5647_HTS_FAST, .vts = OV5647_VTS_FAST },
+static mode_desc_t s_mode[MODE_TOTAL] = {
+    [CAM_MODE_WIDE] = { .name = "binned 2x2, 640x960", .view_base_w = 540, .hts = WIDE_HTS, .vts = WIDE_VTS, .sensitivity = 2 },
+    [CAM_MODE_TELE] = { .name = "1:1, 800x1280", .view_base_w = 1080, .hts = OV5647_HTS_FAST, .vts = OV5647_VTS_FAST, .sensitivity = 1 },
+    [MODE_STILL]    = { .name = "1:1, 1088x1920 still", .hts = STILL_HTS, .vts = STILL_VTS, .sensitivity = 1 },
 };
 
 static struct {
     int fd;
-    void *bufs[8];
-    int nbufs;
+    uint8_t *block;                 /* one PSRAM region, carved into preview or still buffers */
+    size_t preview_buf_len;
+    int preview_bufs;
     esp_cam_sensor_format_t base;
     volatile cam_mode_t mode;
     volatile float zoom;            /* what the user asked for */
     TaskHandle_t task;
-    bool streaming;
+
+    /* high-resolution still in progress */
+    volatile bool still_request, still_dump;
+    volatile int still_frames;
+    volatile int still_kept;        /* buffer index of the photo, -1 until it arrives */
+    uint32_t still_expo, still_gain;
+    uint8_t still_wb[6];            /* white-balance gains of the preview (R, G, B; 0x400 = 1x) */
+    bool still_wb_valid;
+    SemaphoreHandle_t still_done;
 } s_c = { .zoom = CAM_ZOOM_MIN };
 
 static int base_len(const ov5647_reginfo_t *regs, int max)
@@ -96,7 +134,7 @@ static int base_len(const ov5647_reginfo_t *regs, int max)
     return n;
 }
 
-static esp_err_t build_mode(cam_mode_t m, const ov5647_reginfo_t *extra, int n_extra, uint16_t w, uint16_t h)
+static esp_err_t build_mode(int m, const ov5647_reginfo_t *extra, int n_extra, uint16_t w, uint16_t h)
 {
     const ov5647_reginfo_t *base = s_c.base.regs;
     int n_base = base_len(base, s_c.base.regs_size);
@@ -129,14 +167,24 @@ static esp_err_t build_tele(void)
     return build_mode(CAM_MODE_TELE, tele, sizeof(tele) / sizeof(tele[0]), TELE_W, TELE_H);
 }
 
+/* Program a sensor mode and hand the driver `n` buffers of `len` bytes from the block. */
+static esp_err_t program(int m, int n, size_t len)
+{
+    const void *bufs[8];
+    for (int i = 0; i < n; i++) bufs[i] = s_c.block + (size_t)i * len;
+    ESP_RETURN_ON_ERROR(app_video_set_sensor_format(&s_mode[m].fmt), TAG, "sensor format");
+    ESP_RETURN_ON_ERROR(app_video_set_bufs(s_c.fd, (uint32_t)n, bufs), TAG, "buffers");
+    settings_apply();                                   /* mirror/flip live in registers the table rewrote */
+    return ESP_OK;
+}
+
 /* Stream must be stopped. */
 static esp_err_t apply_mode(cam_mode_t m, cam_mode_t from)
 {
-    ESP_RETURN_ON_ERROR(app_video_set_sensor_format(&s_mode[m].fmt), TAG, "sensor format");
-    ESP_RETURN_ON_ERROR(app_video_set_bufs(s_c.fd, (uint32_t)s_c.nbufs, (const void **)s_c.bufs), TAG, "buffers");
+    ESP_RETURN_ON_ERROR(program(m, s_c.preview_bufs, s_c.preview_buf_len), TAG, "mode");
     /* same exposure time in the new mode: lines scale with the line length */
-    auto_exposure_restart(OV5647_EXPO_MAX(s_mode[m].vts), s_mode[from].hts, s_mode[m].hts);
-    settings_apply();                                   /* mirror/flip live in registers the table rewrote */
+    auto_exposure_restart(OV5647_EXPO_MAX(s_mode[m].vts), s_mode[from].hts, s_mode[m].hts,
+                          s_mode[from].sensitivity, s_mode[m].sensitivity);
     frame_pipeline_set_view_base(s_mode[m].view_base_w);
     s_c.mode = m;
     return ESP_OK;
@@ -150,6 +198,8 @@ static cam_mode_t mode_for(float zoom)
 static void switch_mode(cam_mode_t m)
 {
     int64_t t0 = esp_timer_get_time();
+    uint8_t wb[6];
+    auto_exposure_read_wb(wb);                          /* remembered for the new mode */
     esp_err_t ret = app_video_stream_stop_wait(2000);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "stream did not stop: %s", esp_err_to_name(ret));
@@ -166,29 +216,135 @@ static void switch_mode(cam_mode_t m)
     ESP_LOGI(TAG, "mode -> %s in %lld ms", s_mode[s_c.mode].name, (long long)((esp_timer_get_time() - t0) / 1000));
 }
 
+/* ---- high-resolution still ---- */
+
+/* Frame callback while the STILL mode streams (camera task). */
+static void still_frame_cb(uint8_t *buf, uint8_t idx, uint32_t w, uint32_t h, size_t len, void *user)
+{
+    (void)buf; (void)w; (void)h; (void)len; (void)user;
+    int n = ++s_c.still_frames;
+    if (n == STILL_SET_FRAME) {
+        /* only takes effect when written while the sensor is streaming */
+        ov5647_ctl_set_exposure_lines(s_c.still_expo);
+        ov5647_ctl_set_gain_x16(s_c.still_gain);
+        /* The sensor's auto white balance starts over from neutral gains after every mode
+         * change and needs about a second; a frame taken earlier comes out green. So the
+         * gains it had settled on in the preview are applied as manual gains. */
+        if (s_c.still_wb_valid) {
+            for (int i = 0; i < 6; i++) ov5647_ctl_write(OV5647_REG_WB_MANUAL + i, s_c.still_wb[i]);
+            ov5647_ctl_write(OV5647_REG_WB_CTRL, OV5647_WB_MANUAL_EN);
+        }
+    }
+    if (n == STILL_KEEP_FRAME && s_c.still_kept < 0) {
+        s_c.still_kept = idx;                           /* not released: the driver cannot overwrite it */
+        xSemaphoreGive(s_c.still_done);
+        return;
+    }
+    app_video_release_frame(idx);
+}
+
+static void take_still(bool dump)
+{
+    int64_t t0 = esp_timer_get_time();
+    fp_recipe_t recipe;
+    frame_pipeline_get_recipe(&recipe);
+    ae_state_t ae;
+    auto_exposure_get(&ae);
+    s_c.still_wb_valid = auto_exposure_read_wb(s_c.still_wb);
+
+    if (app_video_stream_stop_wait(2000) != ESP_OK) {
+        ESP_LOGE(TAG, "stream did not stop");
+        capture_finish_external(NULL, 0, 0, &recipe, dump);
+        return;
+    }
+
+    /* Same exposure time as the preview (lines scale with the line length); the light that
+     * binning no longer collects is made up with gain, and past the gain limit with time. */
+    uint32_t max_expo = OV5647_EXPO_MAX(STILL_VTS);
+    uint32_t expo = (uint32_t)((uint64_t)ae.exposure_lines * s_mode[s_c.mode].hts / STILL_HTS);
+    uint32_t gain = ae.gain_x16 * s_mode[s_c.mode].sensitivity / s_mode[MODE_STILL].sensitivity;
+    if (gain > ae.max_gain_x16) {
+        expo = (uint32_t)((uint64_t)expo * gain / ae.max_gain_x16);
+        gain = ae.max_gain_x16;
+    }
+    if (expo > max_expo) expo = max_expo;
+    if (expo < 8) expo = 8;
+    s_c.still_expo = expo;
+    s_c.still_gain = gain;
+    s_c.still_frames = 0;
+    s_c.still_kept = -1;
+    xSemaphoreTake(s_c.still_done, 0);
+
+    const uint8_t *result = NULL;
+    esp_err_t ret = program(MODE_STILL, STILL_BUFS, STILL_BYTES);
+    if (ret == ESP_OK) {
+        ov5647_ctl_set_manual(true, true);
+        app_video_register_frame_operation_cb(still_frame_cb);
+        app_video_stream_task_start(s_c.fd, 1, NULL);
+        bool got = xSemaphoreTake(s_c.still_done, pdMS_TO_TICKS(3000)) == pdTRUE;
+        app_video_stream_stop_wait(2000);
+        app_video_register_frame_operation_cb(frame_pipeline_on_camera_frame);
+        if (got) {
+            int64_t t1 = esp_timer_get_time();
+            fx_frame_t a = { (uint16_t *)(s_c.block + (size_t)s_c.still_kept * STILL_BYTES), STILL_W, STILL_H, STILL_W };
+            fx_frame_t b = { (uint16_t *)(s_c.block + (size_t)(1 - s_c.still_kept) * STILL_BYTES), STILL_W, STILL_H, STILL_W };
+            fx_ctx_t ctx = { .seed = recipe.seed, .frame_no = recipe.frame_no, .prev = NULL };
+            fx_frame_t *out = fx_chain_apply_pingpong(&recipe.chain, &a, &b, &ctx);
+            /* the JPEG encoder reads memory, not this core's cache */
+            esp_cache_msync(out->px, STILL_BYTES, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+            result = (const uint8_t *)out->px;
+            ESP_LOGI(TAG, "still: %d frames, exposure %lu lines, gain %lu/16, effects %lld ms",
+                     s_c.still_frames, (unsigned long)expo, (unsigned long)gain,
+                     (long long)((esp_timer_get_time() - t1) / 1000));
+        } else {
+            ESP_LOGE(TAG, "still: no frame (%d arrived)", s_c.still_frames);
+        }
+    } else {
+        ESP_LOGE(TAG, "still mode failed: %s", esp_err_to_name(ret));
+    }
+    recipe.zoom = 1.0f;
+    capture_finish_external(result, STILL_W, STILL_H, &recipe, dump);
+
+    /* back to the preview */
+    apply_mode(s_c.mode, s_c.mode);
+    frame_pipeline_set_zoom(s_c.zoom);
+    app_video_stream_task_start(s_c.fd, 1, NULL);
+    ESP_LOGI(TAG, "still done in %lld ms", (long long)((esp_timer_get_time() - t0) / 1000));
+}
+
 static void cam_task(void *arg)
 {
     (void)arg;
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        if (s_c.still_request) {
+            take_still(s_c.still_dump);
+            s_c.still_request = false;
+        }
         cam_mode_t want = mode_for(s_c.zoom);
         if (want != s_c.mode) switch_mode(want);
         frame_pipeline_set_zoom(s_c.zoom);
     }
 }
 
-esp_err_t cam_ctrl_init(int video_fd, void *const *bufs, int nbufs)
+esp_err_t cam_ctrl_init(int video_fd, void *block, size_t preview_buf_len, int preview_bufs)
 {
-    ESP_RETURN_ON_FALSE(nbufs <= 8, ESP_ERR_INVALID_ARG, TAG, "too many buffers");
+    ESP_RETURN_ON_FALSE(preview_bufs <= 8, ESP_ERR_INVALID_ARG, TAG, "too many buffers");
+    ESP_RETURN_ON_FALSE(preview_buf_len * (size_t)preview_bufs >= STILL_BYTES * STILL_BUFS, ESP_ERR_INVALID_SIZE, TAG,
+                        "block too small for stills");
     s_c.fd = video_fd;
-    s_c.nbufs = nbufs;
-    memcpy(s_c.bufs, bufs, (size_t)nbufs * sizeof(void *));
+    s_c.block = block;
+    s_c.preview_buf_len = preview_buf_len;
+    s_c.preview_bufs = preview_bufs;
+    s_c.still_done = xSemaphoreCreateBinary();
+    ESP_RETURN_ON_FALSE(s_c.still_done, ESP_ERR_NO_MEM, TAG, "semaphore");
 
     ESP_RETURN_ON_ERROR(app_video_get_sensor_format(&s_c.base), TAG, "get sensor format");
     ESP_LOGI(TAG, "base sensor format '%s' %ux%u, %d registers", s_c.base.name, s_c.base.width, s_c.base.height,
              s_c.base.regs_size);
     ESP_RETURN_ON_ERROR(build_mode(CAM_MODE_WIDE, k_wide, sizeof(k_wide) / sizeof(k_wide[0]), WIDE_W, WIDE_H), TAG, "wide");
     ESP_RETURN_ON_ERROR(build_tele(), TAG, "tele");
+    ESP_RETURN_ON_ERROR(build_mode(MODE_STILL, k_still, sizeof(k_still) / sizeof(k_still[0]), STILL_W, STILL_H), TAG, "still");
 
     ESP_RETURN_ON_ERROR(ov5647_ctl_init(), TAG, "sensor i2c");
     uint32_t max_expo = OV5647_EXPO_MAX(WIDE_VTS);
@@ -200,7 +356,8 @@ esp_err_t cam_ctrl_start(void)
 {
     frame_pipeline_set_zoom(s_c.zoom);
     ESP_RETURN_ON_ERROR(app_video_stream_task_start(s_c.fd, 1, NULL), TAG, "stream");
-    BaseType_t ok = xTaskCreatePinnedToCore(cam_task, "cam_ctrl", 6 * 1024, NULL, 5, &s_c.task, 0);
+    /* core 1: the still path runs the effect chain here while the camera task is stopped */
+    BaseType_t ok = xTaskCreatePinnedToCore(cam_task, "cam_ctrl", 16 * 1024, NULL, 5, &s_c.task, 1);
     return ok == pdPASS ? ESP_OK : ESP_FAIL;
 }
 
@@ -227,7 +384,23 @@ float cam_ctrl_set_zoom(float zoom)
 
 float cam_ctrl_get_zoom(void)          { return s_c.zoom; }
 cam_mode_t cam_ctrl_mode(void)         { return s_c.mode; }
-const char *cam_ctrl_mode_name(void)   { return s_mode[s_c.mode].name; }
+const char *cam_ctrl_mode_name(void)   { return s_mode[s_c.still_request ? MODE_STILL : s_c.mode].name; }
+
+bool cam_ctrl_still_available(void)
+{
+    return s_c.task && s_c.mode == CAM_MODE_WIDE && s_c.zoom < CAM_ZOOM_MIN + 0.01f &&
+           !frame_pipeline_chain_is_temporal();
+}
+
+esp_err_t cam_ctrl_take_still(bool dump)
+{
+    if (!cam_ctrl_still_available() || s_c.still_request) return ESP_ERR_INVALID_STATE;
+    ESP_RETURN_ON_ERROR(capture_begin_external(), TAG, "capture busy");
+    s_c.still_dump = dump;
+    s_c.still_request = true;
+    xTaskNotifyGive(s_c.task);
+    return ESP_OK;
+}
 
 void cam_ctrl_set_tele_origin(uint16_t x0, uint16_t y0)
 {

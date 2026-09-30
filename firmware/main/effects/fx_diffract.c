@@ -73,13 +73,15 @@ static void FX_HOT apply(const fx_frame_t *in, fx_frame_t *out, const float *p, 
     if (W > MAXW) W = MAXW;
     int thresh = fx_clampi((int)p[P_THRESH], 0, 254);
     float len = fx_clampf(p[P_LENGTH], 0, 0.98f);
-    int spread = fx_clampi((int)p[P_SPREAD], 0, 64);
+    float k = fx_scale(in);
+    int spread = fx_clampi(fx_px(in, p[P_SPREAD], 0), 0, 128);
     int inten = (int)(fx_clampf(p[P_INTENSITY], 0, 4) * 64.0f);      /* 6.6 fixed */
     int both = p[P_BOTH] >= 0.5f;
     /* decays per channel: red trails longest, blue shortest */
-    unsigned dr = (unsigned)((0.90f + 0.098f * len) * 256.0f);
-    unsigned dg = (unsigned)((0.85f + 0.13f * len) * 256.0f);
-    unsigned db = (unsigned)((0.78f + 0.18f * len) * 256.0f);
+    /* (the decay is per pixel, so its exponent follows the frame scale: same streak length) */
+    unsigned dr = (unsigned)(powf(0.90f + 0.098f * len, 1.0f / k) * 256.0f);
+    unsigned dg = (unsigned)(powf(0.85f + 0.13f * len, 1.0f / k) * 256.0f);
+    unsigned db = (unsigned)(powf(0.78f + 0.18f * len, 1.0f / k) * 256.0f);
     unsigned gain = 255u * 256u / (unsigned)(255 - thresh);           /* maps thresh..255 -> 0..255 */
 
     uint8_t bright[MAXW], gr[MAXW], gg[MAXW], gb[MAXW];

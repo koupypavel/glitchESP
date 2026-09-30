@@ -41,10 +41,10 @@ static void FX_HOT apply(const fx_frame_t *in, fx_frame_t *out, const float *p, 
 
     fx_frame_copy(in, out);
 
-    int th = fx_clampi((int)p[P_TILE], 2, 1024);
-    int tw = fx_clampi((int)(p[P_TILE] * p[P_ASPECT]), 2, 2048);
+    int th = fx_clampi(fx_px(in, p[P_TILE], 2), 2, 1024);
+    int tw = fx_clampi(fx_px(in, p[P_TILE] * p[P_ASPECT], 2), 2, 2048);
     int count = fx_clampi((int)p[P_COUNT], 0, 4096);
-    int maxd = fx_clampi((int)p[P_MAX_DIST], 0, 4096);
+    int maxd = fx_clampi(fx_px(in, p[P_MAX_DIST], 0), 0, 4096);
     int swap = p[P_SWAP] >= 0.5f;
     int W = in->w, H = in->h;
     if (tw > W) tw = W;

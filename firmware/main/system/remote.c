@@ -21,6 +21,7 @@
 #include "ui_live.h"
 #include "ov5647_ctl.h"
 #include "cam_ctrl.h"
+#include "auto_exposure.h"
 
 static const char *TAG = "remote";
 
@@ -139,6 +140,9 @@ static void handle(char *line)
     } else if (!strcmp(line, "dump")) {
         esp_err_t r = capture_trigger_dump();
         if (r != ESP_OK) printf("dump: %s\n", esp_err_to_name(r));
+    } else if (!strcmp(line, "stilldump")) {
+        esp_err_t r = cam_ctrl_take_still(true);
+        if (r != ESP_OK) printf("stilldump: %s\n", esp_err_to_name(r));
     } else if (!strcmp(line, "zoom")) {
         if (*arg) ui_live_set_zoom((float)atof(arg));
         printf("zoom %.2f (%s)\n", (double)cam_ctrl_get_zoom(), cam_ctrl_mode_name());
@@ -150,6 +154,11 @@ static void handle(char *line)
         printf("fx %s: %s\n", arg, ui_live_toggle_effect(arg) ? "toggled" : "unknown effect or chain full");
     } else if (!strcmp(line, "amount")) {
         ui_live_set_amount((float)atof(arg));
+    } else if (!strcmp(line, "ae")) {
+        ae_state_t ae;
+        auto_exposure_get(&ae);
+        printf("ae: frame %lu luma %u rgb %u %u %u expo %lu gain %lu/16\n", (unsigned long)ae.frame, ae.measured_luma,
+               ae.mean_r, ae.mean_g, ae.mean_b, (unsigned long)ae.exposure_lines, (unsigned long)ae.gain_x16);
     } else if (!strcmp(line, "ls")) {
         cmd_ls();
     } else if (!strcmp(line, "get")) {
@@ -159,7 +168,7 @@ static void handle(char *line)
     } else if (!strcmp(line, "sdbench")) {
         cmd_sdbench();
     } else if (!strcmp(line, "help")) {
-        printf("commands: photo | video | dump | zoom [1..6] | tele <x0> <y0> | fx <id> | amount <0..1> | ls | get <file> | reg <hex> [hex] | sdbench\n");
+        printf("commands: photo | video | dump | stilldump | zoom [1..6] | tele <x0> <y0> | fx <id> | amount <0..1> | ae | ls | get <file> | reg <hex> [hex] | sdbench\n");
     } else {
         printf("unknown command '%s' (try help)\n", line);
     }

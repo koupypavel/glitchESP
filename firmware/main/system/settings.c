@@ -8,7 +8,7 @@
 static const char *TAG = "settings";
 #define NS "glitch"
 
-static settings_t s_cfg = { .flip_h = false, .flip_v = false, .quality = 0, .jpeg_quality = 90 };
+static settings_t s_cfg = { .flip_h = false, .flip_v = false, .quality = 0, .jpeg_quality = 90, .photo_hires = true };
 
 esp_err_t settings_init(void)
 {
@@ -19,6 +19,7 @@ esp_err_t settings_init(void)
         if (nvs_get_u8(h, "flip_v", &v) == ESP_OK) s_cfg.flip_v = v;
         if (nvs_get_u8(h, "quality", &v) == ESP_OK) s_cfg.quality = v;
         if (nvs_get_u8(h, "jpeg_q", &v) == ESP_OK) s_cfg.jpeg_quality = v;
+        if (nvs_get_u8(h, "hires", &v) == ESP_OK) s_cfg.photo_hires = v;
         nvs_close(h);
     }
     ESP_LOGI(TAG, "flip_h=%d flip_v=%d quality=%u jpeg=%u", s_cfg.flip_h, s_cfg.flip_v, s_cfg.quality, s_cfg.jpeg_quality);
@@ -46,6 +47,7 @@ void settings_set(const settings_t *s)
         nvs_set_u8(h, "flip_v", s_cfg.flip_v);
         nvs_set_u8(h, "quality", s_cfg.quality);
         nvs_set_u8(h, "jpeg_q", s_cfg.jpeg_quality);
+        nvs_set_u8(h, "hires", s_cfg.photo_hires);
         nvs_commit(h);
         nvs_close(h);
     }

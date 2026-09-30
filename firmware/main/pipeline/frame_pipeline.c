@@ -445,6 +445,9 @@ void frame_pipeline_on_camera_frame(uint8_t *camera_buf, uint8_t cam_idx,
         fp_quality_t q = s_p.quality;
         bool half = (q == FP_QUALITY_HALF) || (q == FP_QUALITY_AUTO && chain_prefers_half(&recipe.chain));
         bool temporal = chain_is_temporal(&recipe.chain);
+        /* A photo is worth one slow frame: render it at full resolution. (Not with temporal
+         * effects, whose trail lives in the half-resolution history.) */
+        if (half && s_p.capture_pending && !temporal) half = false;
         fx_ctx_t ctx = { .seed = recipe.seed, .frame_no = recipe.frame_no, .prev = NULL };
         if (half) {
             if (scaled) scale_view(cam, cam_w, cam_h, &view, s_p.half_in, HALF_W, HALF_H);
@@ -573,6 +576,14 @@ void frame_pipeline_get_recipe(fp_recipe_t *out)
     taskENTER_CRITICAL(&s_p.lock);
     *out = s_p.recipe;
     taskEXIT_CRITICAL(&s_p.lock);
+    out->frame_no = s_p.seq;          /* the frame on screen: same random pattern if re-rendered */
+}
+
+bool frame_pipeline_chain_is_temporal(void)
+{
+    fp_recipe_t r;
+    frame_pipeline_get_recipe(&r);
+    return chain_is_temporal(&r.chain);
 }
 
 void frame_pipeline_set_amount(float amount)

@@ -18,8 +18,10 @@ live, the shutter burns the effect into the saved photo or video, and every shot
   kaleido, diffraction, drift and breathe.
 - **One knob for "how broken".** An amount slider drives every active effect through its own
   mapping; a seed button re-rolls the randomness.
-- **Photos**: hardware JPEG, 720×1280, saved as `GLITCH/IMG_nnnn.jpg` with a `.json` sidecar
-  listing the effect chain, parameters, seed and frame number.
+- **Photos**: hardware JPEG saved as `GLITCH/IMG_nnnn.jpg` with a `.json` sidecar listing
+  the effect chain, parameters, seed and frame number. At 1× zoom the sensor is re-read at
+  full resolution for the shot and the effects are applied again at that size: 1088×1920
+  (2.1 MP), about 0.7 s per photo. Zoomed in, the 720×1280 frame on screen is saved.
 - **Video**: Motion-JPEG AVI (`GLITCH/VID_nnnn.avi`) recorded from the same frames you see,
   at roughly 12 fps.
 - **Zoom** from 1× to 6×. 1× uses the sensor's 2×2 binned mode (widest view, least noise),
@@ -34,7 +36,7 @@ live, the shutter burns the effect into the saved photo or video, and every shot
 | Amount slider | Intensity of all active effects |
 | Seed button | New random seed |
 | + / − (right edge) | Zoom in and out |
-| Gear button | Settings: mirror left/right, flip up/down, preview quality |
+| Gear button | Settings: mirror left/right, flip up/down, full-resolution photos, preview quality |
 | BOOT button, short press | Take a photo |
 | BOOT button, hold 0.7 s | Start or stop video recording |
 
@@ -92,7 +94,7 @@ what was learned about performance on the ESP32-P4.
 ## Status
 
 Working on the device: preview, all twelve effects on both cores, zoom, settings, and
-photos and video saved to the card. Still planned: higher-resolution stills, presets, an on-device gallery, per-parameter effect
+photos (including full-resolution stills) and video saved to the card. Still planned: presets, an on-device gallery, per-parameter effect
 editing, a wired shutter button and rotary knob on the expansion header, and a smaller video
 format using the P4's H.264 encoder.
 

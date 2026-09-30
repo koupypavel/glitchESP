@@ -153,11 +153,12 @@ static void breathe_field(int x, int y, int W, int H, const float *p, uint32_t f
     float turns = (float)frame * (p[B_RATE] / 60.0f / 19.0f);
     /* 0..depth: only ever expanded, so the sampler never leaves the frame (no edge bands) */
     float s = depth * (0.5f + 0.5f * (float)sin_turn(turns) / 32767.0f);
-    float w = p[B_WOBBLE] * 6.0f * ((float)W / 720.0f);
+    float k = (float)W / 720.0f;
+    float w = p[B_WOBBLE] * 6.0f * k;
     /* zoom about the centre: sample from (x - (x-cx)*s); positive s = expanded (zoomed in) */
     float cx = 0.5f * W, cy = 0.5f * H;
-    float dx = -(x - cx) * s + w * (float)sin_turn(y * 0.004f + turns * 3.0f) / 32767.0f;
-    float dy = -(y - cy) * s + w * (float)sin_turn(x * 0.005f - turns * 2.0f) / 32767.0f;
+    float dx = -(x - cx) * s + w * (float)sin_turn(y * 0.004f / k + turns * 3.0f) / 32767.0f;
+    float dy = -(y - cy) * s + w * (float)sin_turn(x * 0.005f / k - turns * 2.0f) / 32767.0f;
     *dx16 = (int32_t)(dx * 65536.0f);
     *dy16 = (int32_t)(dy * 65536.0f);
 }

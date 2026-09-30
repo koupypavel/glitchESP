@@ -109,6 +109,13 @@ void fx_chain_apply(const fx_chain_t *c, const fx_frame_t *in, fx_frame_t *out, 
                     const fx_ctx_t *ctx);
 
 /*
+ * Run the chain with only two buffers: the image starts in `a`, each effect renders into the
+ * other buffer. Both are overwritten; returns the one holding the result (`a` if no effect
+ * is enabled). For frames too large to afford a third buffer (high-resolution stills).
+ */
+fx_frame_t *fx_chain_apply_pingpong(const fx_chain_t *c, fx_frame_t *a, fx_frame_t *b, const fx_ctx_t *ctx);
+
+/*
  * Optional parallel runner: the host installs a function that runs one row-parallel effect
  * split across cores (it must call fx->apply for every row exactly once). NULL = sequential.
  */
@@ -129,6 +136,22 @@ static inline unsigned fx_luma(uint16_t p)
 {
     unsigned r = fx_r5(p) << 3, g = fx_g6(p) << 2, b = fx_b5(p) << 3;
     return (r * 77 + g * 151 + b * 28) >> 8;
+}
+
+/*
+ * Resolution independence. Parameters measured in pixels (shifts, band heights, tile sizes,
+ * wavelengths) are defined for a frame FX_REF_W pixels wide. Effects multiply them by
+ * fx_scale(), so the same recipe looks the same on the 360-wide preview path, the 720-wide
+ * full path and a 1088-wide still.
+ */
+#define FX_REF_W 720
+static inline float fx_scale(const fx_frame_t *f) { return (float)f->w / (float)FX_REF_W; }
+/* a pixel-unit parameter scaled to this frame, rounded, never below `min` */
+static inline int fx_px(const fx_frame_t *f, float v, int min)
+{
+    float s = v * fx_scale(f);
+    int r = (int)(s < 0 ? s - 0.5f : s + 0.5f);
+    return r < min ? min : r;
 }
 
 /* Large working tables (>16 KB) must not live in on-chip RAM: allocate them through this

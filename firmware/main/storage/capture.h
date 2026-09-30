@@ -10,6 +10,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "esp_err.h"
+#include "frame_pipeline.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -51,6 +52,15 @@ esp_err_t capture_trigger(void);
 /* Like capture_trigger(), but the JPEG is printed on the serial port as base64 instead of
  * being saved (development aid: see firmware/decode_jpeg_dump.py). */
 esp_err_t capture_trigger_dump(void);
+
+/*
+ * Stills produced outside the frame pipeline (the high-resolution path in cam_ctrl.c):
+ * begin reserves the capture engine (fails while a still or a recording is in progress),
+ * finish encodes `rgb565` (w x h, cache-line aligned, or NULL if the frame never came),
+ * saves it like any other still and calls the done callback.
+ */
+esp_err_t capture_begin_external(void);
+void capture_finish_external(const uint8_t *rgb565, uint32_t w, uint32_t h, const fp_recipe_t *recipe, bool dump);
 
 /* ---- video ---- */
 esp_err_t capture_video_start(video_done_cb_t done_cb, void *user);
