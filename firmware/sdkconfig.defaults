@@ -58,3 +58,8 @@ CONFIG_LV_USE_CANVAS=y
 
 # The effect loop runs flat out on core 1; do not let the idle-task watchdog fire there
 CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+
+# microSD / FAT: long file names (IMG_0001.json) and sector-sized stdio buffers
+CONFIG_FATFS_LFN_HEAP=y
+CONFIG_FATFS_MAX_LFN=255
+CONFIG_FATFS_VFS_FSTAT_BLKSIZE=4096

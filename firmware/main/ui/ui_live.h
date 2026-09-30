@@ -21,6 +21,11 @@ void ui_live_on_video_started(void);
 void ui_live_on_video_done(const video_result_t *res);
 void ui_live_on_video_error(const char *msg);
 
+/* Thread-safe: operate the on-screen controls from another task (serial remote). */
+void ui_live_set_zoom(float zoom);
+bool ui_live_toggle_effect(const char *id);   /* false: unknown id, or the chain is full */
+void ui_live_set_amount(float amount);
+
 #ifdef __cplusplus
 }
 #endif

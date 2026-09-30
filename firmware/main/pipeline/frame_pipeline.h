@@ -37,6 +37,7 @@ typedef struct {
     float amount;          /* last value of the one-knob control, 0..1 */
     uint32_t seed;
     uint32_t frame_no;     /* value fed to the effects' RNG for this frame */
+    float zoom;            /* digital zoom the frame was taken with, 1.0 = none */
 } fp_recipe_t;
 
 /* A displayable frame: FP_OUT_W x FP_OUT_H pixels starting at `px`, rows `stride_px` apart. */
@@ -77,6 +78,10 @@ void frame_pipeline_get_recipe(fp_recipe_t *out);
 void frame_pipeline_set_amount(float amount);             /* re-maps every slot via from_amount */
 void frame_pipeline_set_seed(uint32_t seed);
 uint32_t frame_pipeline_reroll(void);                     /* new random seed, returns it */
+
+/* ---- digital zoom: 1.0 (the 720x1280 window, pixel for pixel) to 4.0; returns the value set ---- */
+float frame_pipeline_set_zoom(float zoom);
+float frame_pipeline_get_zoom(void);
 
 /* ---- preview quality ---- */
 typedef enum { FP_QUALITY_AUTO = 0, FP_QUALITY_FULL, FP_QUALITY_HALF } fp_quality_t;

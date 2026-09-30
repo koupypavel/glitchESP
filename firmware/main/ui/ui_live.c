@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 #include "esp_log.h"
 #include "lvgl.h"
 #include "ui_lvgl.h"
@@ -22,6 +23,7 @@ static lv_obj_t *s_slider;
 static lv_obj_t *s_chip[16];
 static lv_timer_t *s_toast_timer;
 static lv_obj_t *s_settings;   /* modal panel, NULL when closed */
+static lv_obj_t *s_zoom_label;
 
 /* ---- toast ---- */
 
@@ -73,6 +75,70 @@ static void reroll_event_cb(lv_event_t *e)
     char msg[40];
     snprintf(msg, sizeof(msg), "seed %08lx", (unsigned long)seed);
     toast_show(msg, 900);
+}
+
+/* ---- zoom ---- */
+
+static const float k_zoom_steps[] = { 1.0f, 1.5f, 2.0f, 3.0f, 4.0f };
+#define ZOOM_STEPS ((int)(sizeof(k_zoom_steps) / sizeof(k_zoom_steps[0])))
+
+static void zoom_show(float z)
+{
+    int tenths = (int)(z * 10.0f + 0.5f);
+    lv_label_set_text_fmt(s_zoom_label, "%d.%dx", tenths / 10, tenths % 10);
+}
+
+static void zoom_step(int dir)
+{
+    float z = frame_pipeline_get_zoom();
+    int idx = 0;
+    for (int i = 1; i < ZOOM_STEPS; i++) {
+        if (fabsf(k_zoom_steps[i] - z) < fabsf(k_zoom_steps[idx] - z)) idx = i;
+    }
+    idx += dir;
+    if (idx < 0) idx = 0;
+    if (idx >= ZOOM_STEPS) idx = ZOOM_STEPS - 1;
+    zoom_show(frame_pipeline_set_zoom(k_zoom_steps[idx]));
+}
+
+static void zoom_event_cb(lv_event_t *e)
+{
+    zoom_step((int)(intptr_t)lv_event_get_user_data(e));
+}
+
+static lv_obj_t *zoom_button(lv_obj_t *parent, const char *symbol, int dir, int y_ofs)
+{
+    lv_obj_t *b = lv_button_create(parent);
+    lv_obj_set_size(b, 64, 64);
+    lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(b, lv_color_hex(0x303030), 0);
+    lv_obj_align(b, LV_ALIGN_RIGHT_MID, -10, y_ofs);
+    lv_obj_t *l = lv_label_create(b);
+    lv_obj_set_style_text_font(l, &lv_font_montserrat_24, 0);
+    lv_label_set_text(l, symbol);
+    lv_obj_center(l);
+    lv_obj_add_event_cb(b, zoom_event_cb, LV_EVENT_CLICKED, (void *)(intptr_t)dir);
+    return b;
+}
+
+/* "+" and "-" on the right edge with the current factor between them. */
+static void create_zoom_controls(lv_obj_t *parent)
+{
+    zoom_button(parent, LV_SYMBOL_PLUS, +1, -150);
+    zoom_button(parent, LV_SYMBOL_MINUS, -1, -10);
+
+    s_zoom_label = lv_label_create(parent);
+    lv_obj_set_style_text_font(s_zoom_label, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(s_zoom_label, lv_color_white(), 0);
+    lv_obj_set_style_bg_color(s_zoom_label, COLOR_KEY_DIM, 0);
+    lv_obj_set_style_bg_opa(s_zoom_label, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_hor(s_zoom_label, 6, 0);
+    lv_obj_set_style_pad_ver(s_zoom_label, 4, 0);
+    lv_obj_set_style_radius(s_zoom_label, 6, 0);
+    lv_obj_set_width(s_zoom_label, 64);
+    lv_obj_set_style_text_align(s_zoom_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(s_zoom_label, LV_ALIGN_RIGHT_MID, -10, -80);
+    zoom_show(frame_pipeline_get_zoom());
 }
 
 /* ---- settings panel ---- */
@@ -278,6 +344,7 @@ void ui_live_create(void)
     lv_label_set_text(s_status, "starting camera...");
 
     create_control_bar(scr);
+    create_zoom_controls(scr);
 
     s_toast = lv_label_create(scr);
     lv_obj_set_style_text_font(s_toast, &lv_font_montserrat_24, 0);
@@ -291,6 +358,40 @@ void ui_live_create(void)
 
     lv_timer_create(status_timer_cb, 1000, NULL);
     ESP_LOGI(TAG, "live screen created (%d effects)", fx_registry_count());
+}
+
+/* ---- the same controls, driven from another task (serial remote) ---- */
+
+void ui_live_set_zoom(float zoom)
+{
+    if (!ui_lvgl_lock(200)) return;
+    zoom_show(frame_pipeline_set_zoom(zoom));
+    ui_lvgl_unlock();
+}
+
+bool ui_live_toggle_effect(const char *id)
+{
+    bool ok = false;
+    if (!ui_lvgl_lock(200)) return false;
+    for (int i = 0; i < fx_registry_count() && i < 16; i++) {
+        if (!s_chip[i] || strcmp(fx_registry_get(i)->id, id) != 0) continue;
+        bool turn_on = !lv_obj_has_state(s_chip[i], LV_STATE_CHECKED);
+        if (turn_on) lv_obj_add_state(s_chip[i], LV_STATE_CHECKED);
+        else         lv_obj_remove_state(s_chip[i], LV_STATE_CHECKED);
+        rebuild_chain();                       /* un-checks the chip again if the chain is full */
+        ok = lv_obj_has_state(s_chip[i], LV_STATE_CHECKED) == turn_on;
+        break;
+    }
+    ui_lvgl_unlock();
+    return ok;
+}
+
+void ui_live_set_amount(float amount)
+{
+    if (!ui_lvgl_lock(200)) return;
+    lv_slider_set_value(s_slider, (int32_t)(amount * 100.0f), LV_ANIM_OFF);
+    frame_pipeline_set_amount(amount);
+    ui_lvgl_unlock();
 }
 
 void ui_live_on_capture_started(void)

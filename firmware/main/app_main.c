@@ -1,5 +1,5 @@
 /*
- * glitchESP ??? M1 skeleton camera app.
+ * glitchESP camera app.
  * Camera (OV5647 / MIPI-CSI) -> ISP -> RGB565 -> [effects] -> panel frame buffer (+UI layer) on the 720x1280 LCD.
  * BOOT button = shutter: hardware JPEG encode of the displayed frame -> /sdcard/GLITCH.
  */
@@ -8,6 +8,7 @@
 #include "esp_heap_caps.h"
 #include "esp_private/esp_cache_private.h"
 #include "nvs_flash.h"
+#include "sdmmc_cmd.h"
 #include "bsp/esp-bsp.h"
 #include "bsp/display.h"
 #include "esp_video_init.h"
@@ -23,6 +24,7 @@
 #include "auto_exposure.h"
 #include "fx_parallel.h"
 #include "settings.h"
+#include "remote.h"
 
 #define GLITCH_BENCH 0          /* 1 = run main/bench.c after boot (effect timings, test shot) */
 void bench_start(void);
@@ -87,6 +89,7 @@ void app_main(void)
     if (sd_ok) {
         ESP_LOGI(TAG, "SD card mounted at %s (%s, %llu MB)", BSP_SD_MOUNT_POINT, bsp_sdcard->cid.name,
                  ((uint64_t)bsp_sdcard->csd.capacity * bsp_sdcard->csd.sector_size) / (1024 * 1024));
+        sdmmc_card_print_info(stdout, bsp_sdcard);
     } else {
         ESP_LOGW(TAG, "no SD card: shots will not be saved");
     }
@@ -140,6 +143,7 @@ void app_main(void)
 
     /* Shutter */
     ESP_ERROR_CHECK(buttons_init(on_shutter, on_video, NULL));
+    ESP_ERROR_CHECK(remote_init(on_shutter, on_video, NULL));   /* same actions over the serial port */
 
 
 #if GLITCH_BENCH

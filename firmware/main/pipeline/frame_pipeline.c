@@ -21,7 +21,8 @@
 static const char *TAG = "pipeline";
 
 #define ALIGN_UP(num, align) (((num) + ((align) - 1)) & ~((align) - 1))
-#define CROP_X          ((FP_CAM_W - FP_OUT_W) / 2)  /* 40 px: centered window */
+#define ZOOM_MIN_Q8     256                           /* 1x: the 720x1280 window, pixel for pixel */
+#define ZOOM_MAX_Q8     (4 * 256)
 #define HALF_W          (FP_OUT_W / 2)
 #define HALF_H          (FP_OUT_H / 2)
 #define HALF_BYTES      (HALF_W * HALF_H * 2)
@@ -32,6 +33,8 @@ typedef struct {
     uint16_t *half_in, *half_tmp, *half_out[2];   /* 360x640 working frames; half_out ping-pongs */
     int half_cur;                                  /* which half_out holds the latest output */
     uint16_t *prev_full;                           /* previous full-res clean output (temporal fx) */
+    uint16_t *zoom_buf;                            /* zoomed full-res input for the effect chain */
+    volatile uint32_t zoom_q8;                     /* digital zoom, 256 = 1x */
     bool prev_full_valid, prev_half_valid;
     volatile fp_quality_t quality;
     volatile bool last_half;
@@ -59,7 +62,8 @@ typedef struct {
 
 static pipeline_t s_p = {
     .lock = portMUX_INITIALIZER_UNLOCKED,
-    .recipe = { .amount = 0.5f, .seed = 1 },
+    .recipe = { .amount = 0.5f, .seed = 1, .zoom = 1.0f },
+    .zoom_q8 = ZOOM_MIN_Q8,
 };
 
 esp_err_t frame_pipeline_init(void)
@@ -73,8 +77,9 @@ esp_err_t frame_pipeline_init(void)
     s_p.half_out[0] = heap_caps_aligned_calloc(s_p.cache_line, 1, HALF_BYTES, MALLOC_CAP_SPIRAM);
     s_p.half_out[1] = heap_caps_aligned_calloc(s_p.cache_line, 1, HALF_BYTES, MALLOC_CAP_SPIRAM);
     s_p.prev_full = heap_caps_aligned_calloc(s_p.cache_line, 1, len, MALLOC_CAP_SPIRAM);
-    ESP_RETURN_ON_FALSE(s_p.half_in && s_p.half_tmp && s_p.half_out[0] && s_p.half_out[1] && s_p.prev_full,
-                        ESP_ERR_NO_MEM, TAG, "half/prev buffers");
+    s_p.zoom_buf = heap_caps_aligned_calloc(s_p.cache_line, 1, len, MALLOC_CAP_SPIRAM);
+    ESP_RETURN_ON_FALSE(s_p.half_in && s_p.half_tmp && s_p.half_out[0] && s_p.half_out[1] && s_p.prev_full && s_p.zoom_buf,
+                        ESP_ERR_NO_MEM, TAG, "half/prev/zoom buffers");
 
     fx_chain_clear(&s_p.recipe.chain);
     s_p.recipe.seed = esp_random();
@@ -107,6 +112,120 @@ static void copy_window(const uint16_t *src, uint32_t src_stride, uint16_t *dst)
 {
     rows_arg_t a = { src, src_stride, dst };
     fx_parallel_rows(copy_rows, &a, 0, FP_OUT_H, dst, FP_OUT_W);
+}
+
+/*
+ * Bilinear scaler for digital zoom: any rectangle of the camera frame -> any output size.
+ *
+ * Done in two separable steps so the expensive part is shared between output rows:
+ *   1. horizontal: a source row is resampled to the output width once, into a small line
+ *      buffer on the stack (on-chip RAM, so it is fast to re-read);
+ *   2. vertical: each output row is a weighted mix of two such lines.
+ * When zooming in, several output rows fall between the same two source rows and reuse
+ * the same two lines, so step 1 runs only about (output rows / zoom) times.
+ *
+ * Pixels are mixed in a "spread" form: the RGB565 value is copied into a 32-bit word with
+ * green moved to the upper half (mask 0x07E0F81F). That leaves 5 empty bits above every
+ * channel, so one multiplication by a 0..32 weight scales all three channels at once.
+ */
+#define SPREAD_MASK 0x07E0F81Fu
+#define SPREAD(p)   ((((uint32_t)(p)) | ((uint32_t)(p) << 16)) & SPREAD_MASK)
+
+typedef struct {
+    const uint16_t *src; uint32_t src_stride; int src_h;   /* whole camera frame */
+    int32_t y0_fp, step_y_fp;                               /* 16.16 source row of output row 0, step */
+    uint16_t *dst; int dst_w;
+    const uint16_t *xi;                                     /* per output column: left source pixel... */
+    const uint8_t *xw;                                      /* ...and the 0..31 weight of its right neighbour */
+} scale_arg_t;
+
+static uint16_t s_scale_xi[FP_OUT_W];
+static uint8_t  s_scale_xw[FP_OUT_W];
+
+static inline void scale_hline(const scale_arg_t *s, int row, uint32_t *line)
+{
+    const uint16_t *r = s->src + (size_t)row * s->src_stride;
+    const uint16_t *xi = s->xi; const uint8_t *xw = s->xw;
+    for (int x = 0; x < s->dst_w; x++) {
+        uint32_t i = xi[x], w = xw[x];
+        uint32_t a = SPREAD(r[i]), b = SPREAD(r[i + 1]);
+        line[x] = ((a * (32 - w) + b * w) >> 5) & SPREAD_MASK;
+    }
+}
+
+static void IRAM_ATTR scale_rows(void *arg, int y0, int y1)
+{
+    const scale_arg_t *s = arg;
+    uint32_t line_a[FP_OUT_W], line_b[FP_OUT_W];            /* 5.8 KB of stack per core */
+    uint32_t *l0 = line_a, *l1 = line_b;
+    int have0 = -1, have1 = -1;                             /* source rows held in l0 / l1 */
+    int max_row = s->src_h - 2;
+    for (int y = y0; y < y1; y++) {
+        int32_t sy = s->y0_fp + y * s->step_y_fp;
+        if (sy < 0) sy = 0;
+        int r = sy >> 16;
+        uint32_t w1 = ((uint32_t)sy >> 11) & 31;
+        if (r > max_row) { r = max_row; w1 = 31; }
+        if (have0 != r) {
+            if (have1 == r) {                               /* moved down one row: reuse the lower line */
+                uint32_t *t = l0; l0 = l1; l1 = t;
+                have0 = r; have1 = -1;
+            } else {
+                scale_hline(s, r, l0);
+                have0 = r;
+            }
+        }
+        if (have1 != r + 1) {
+            scale_hline(s, r + 1, l1);
+            have1 = r + 1;
+        }
+        uint32_t w0 = 32 - w1;
+        uint32_t *d32 = (uint32_t *)(s->dst + (size_t)y * s->dst_w);
+        for (int x = 0; x < s->dst_w; x += 2) {
+            uint32_t p = ((l0[x] * w0 + l1[x] * w1) >> 5) & SPREAD_MASK;
+            uint32_t q = ((l0[x + 1] * w0 + l1[x + 1] * w1) >> 5) & SPREAD_MASK;
+            d32[x >> 1] = ((p | (p >> 16)) & 0xffff) | ((q | (q >> 16)) << 16);
+        }
+    }
+}
+
+/* The part of the camera frame that is shown: centered, FP_OUT aspect, shrinking with zoom. */
+typedef struct { int x, y, w, h; } view_rect_t;
+
+static view_rect_t view_rect(uint32_t cam_w, uint32_t cam_h, uint32_t zoom_q8)
+{
+    view_rect_t v;
+    v.w = (int)((FP_OUT_W * 256u) / zoom_q8) & ~1;
+    v.h = (int)((FP_OUT_H * 256u) / zoom_q8) & ~1;
+    if (v.w > (int)cam_w) v.w = (int)cam_w;
+    if (v.h > (int)cam_h) v.h = (int)cam_h;
+    v.x = (((int)cam_w - v.w) / 2) & ~1;                    /* even: keeps 32-bit reads aligned */
+    v.y = ((int)cam_h - v.h) / 2;
+    return v;
+}
+
+/* Scale `v` (a rectangle of the camera frame) to a dst_w x dst_h image. */
+static void scale_view(const uint16_t *cam, uint32_t cam_w, uint32_t cam_h, const view_rect_t *v,
+                       uint16_t *dst, int dst_w, int dst_h)
+{
+    /* Pixel centres: output pixel i sits at source position x + (i + 0.5) * step - 0.5. */
+    int32_t step_x = (int32_t)(((int64_t)v->w << 16) / dst_w);
+    int32_t step_y = (int32_t)(((int64_t)v->h << 16) / dst_h);
+    int32_t x0 = (v->x << 16) + step_x / 2 - 0x8000;
+    int32_t x_max = ((int32_t)(cam_w - 1) << 16) - 1;       /* so that pixel i + 1 always exists */
+    for (int i = 0; i < dst_w; i++) {
+        int32_t sx = x0 + i * step_x;
+        if (sx < 0) sx = 0;
+        if (sx > x_max) sx = x_max;
+        s_scale_xi[i] = (uint16_t)(sx >> 16);
+        s_scale_xw[i] = (uint8_t)((sx >> 11) & 31);
+    }
+    scale_arg_t a = {
+        .src = cam, .src_stride = cam_w, .src_h = (int)cam_h,
+        .y0_fp = (v->y << 16) + step_y / 2 - 0x8000, .step_y_fp = step_y,
+        .dst = dst, .dst_w = dst_w, .xi = s_scale_xi, .xw = s_scale_xw,
+    };
+    fx_parallel_rows(scale_rows, &a, 0, dst_h, dst, (uint32_t)dst_w);
 }
 
 /* 2x2 point-sampled downscale of the camera window: reads every other row/pixel. */
@@ -183,13 +302,19 @@ void frame_pipeline_on_camera_frame(uint8_t *camera_buf, uint8_t cam_idx,
     int64_t t_start = esp_timer_get_time();
     if (s_p.last_end_us) s_p.acc_wait_us += (uint64_t)(t_start - s_p.last_end_us);
 
-    if (cam_w != FP_CAM_W || cam_h != FP_CAM_H) {
+    if (cam_w < FP_OUT_W || cam_h < FP_OUT_H) {
         ESP_LOGE(TAG, "unexpected camera frame %ux%u", (unsigned)cam_w, (unsigned)cam_h);
         app_video_release_frame(cam_idx);
         return;
     }
     uint32_t seq = s_p.seq + 1;
-    const uint16_t *cam_px = (const uint16_t *)camera_buf + CROP_X;   /* centered window, stride 800 */
+    /* What is shown: a centered rectangle of the camera frame. At 1x it is exactly
+     * 720x1280 and is used in place; anything else goes through the scaler. */
+    uint32_t zoom_q8 = s_p.zoom_q8;
+    view_rect_t view = view_rect(cam_w, cam_h, zoom_q8);
+    bool scaled = view.w != FP_OUT_W || view.h != FP_OUT_H;
+    const uint16_t *cam = (const uint16_t *)camera_buf;
+    const uint16_t *cam_px = cam + (size_t)view.y * cam_w + view.x;   /* top-left of the view, stride cam_w */
 
     /* Private copy of the recipe so the UI can change it at any time. */
     fp_recipe_t recipe;
@@ -197,16 +322,18 @@ void frame_pipeline_on_camera_frame(uint8_t *camera_buf, uint8_t cam_idx,
     recipe = s_p.recipe;
     taskEXIT_CRITICAL(&s_p.lock);
     recipe.frame_no = seq;
+    recipe.zoom = (float)zoom_q8 / 256.0f;
 
-    /* software auto-exposure looks at the clean camera window */
-    auto_exposure_feed(cam_px, FP_OUT_W, FP_OUT_H, FP_CAM_W);
+    /* software auto-exposure meters the part of the camera frame that is shown */
+    auto_exposure_feed(cam_px, view.w, view.h, (int)cam_w);
 
     /* Render into a free panel frame buffer. */
     int fb_idx = display_acquire_fb();
     uint16_t *fb = display_fb(fb_idx);
     int64_t t0 = esp_timer_get_time();
     if (!chain_active(&recipe.chain)) {
-        copy_window(cam_px, FP_CAM_W, fb);
+        if (scaled) scale_view(cam, cam_w, cam_h, &view, fb, FP_OUT_W, FP_OUT_H);
+        else        copy_window(cam_px, cam_w, fb);
         s_p.fx_us = 0;
         s_p.acc_copy_us += (uint64_t)(esp_timer_get_time() - t0);
     } else {
@@ -215,7 +342,8 @@ void frame_pipeline_on_camera_frame(uint8_t *camera_buf, uint8_t cam_idx,
         bool temporal = chain_is_temporal(&recipe.chain);
         fx_ctx_t ctx = { .seed = recipe.seed, .frame_no = recipe.frame_no, .prev = NULL };
         if (half) {
-            downscale_2x(cam_px, FP_CAM_W, s_p.half_in);
+            if (scaled) scale_view(cam, cam_w, cam_h, &view, s_p.half_in, HALF_W, HALF_H);
+            else        downscale_2x(cam_px, cam_w, s_p.half_in);
             int cur = s_p.half_cur ^ 1;                          /* write the other buffer */
             fx_frame_t prev = { s_p.half_out[s_p.half_cur], HALF_W, HALF_H, HALF_W };
             if (temporal && s_p.prev_half_valid) ctx.prev = &prev;
@@ -230,7 +358,12 @@ void frame_pipeline_on_camera_frame(uint8_t *camera_buf, uint8_t cam_idx,
         } else {
             fx_frame_t prev = { s_p.prev_full, FP_OUT_W, FP_OUT_H, FP_OUT_W };
             if (temporal && s_p.prev_full_valid) ctx.prev = &prev;
-            fx_frame_t in  = { (uint16_t *)cam_px, FP_OUT_W, FP_OUT_H, FP_CAM_W };
+            fx_frame_t in  = { (uint16_t *)cam_px, FP_OUT_W, FP_OUT_H, cam_w };
+            if (scaled) {
+                scale_view(cam, cam_w, cam_h, &view, s_p.zoom_buf, FP_OUT_W, FP_OUT_H);
+                in.px = s_p.zoom_buf;
+                in.stride_px = FP_OUT_W;
+            }
             fx_frame_t dst = { fb, FP_OUT_W, FP_OUT_H, FP_OUT_W };
             fx_frame_t tmp = { (uint16_t *)s_p.tmp_buf, FP_OUT_W, FP_OUT_H, FP_OUT_W };
             fx_chain_apply(&recipe.chain, &in, &dst, &tmp, &ctx);
@@ -289,8 +422,8 @@ void frame_pipeline_on_camera_frame(uint8_t *camera_buf, uint8_t cam_idx,
         }
         s_p.fps_value = s_p.fps_count / 2;
         ae_state_t ae; auto_exposure_get(&ae);
-        ESP_LOGI(TAG, "cam %lu fps | wait %lu, copy %lu, fx %lu%s, ui %lu, total %lu us | int free %u KB | luma %u expo %lu gain %lu/16 | %s",
-                 (unsigned long)s_p.fps_value, (unsigned long)(s_p.acc_wait_us / n),
+        ESP_LOGI(TAG, "cam %lu fps | zoom %.2f | wait %lu, copy %lu, fx %lu%s, ui %lu, total %lu us | int free %u KB | luma %u expo %lu gain %lu/16 | %s",
+                 (unsigned long)s_p.fps_value, (double)recipe.zoom, (unsigned long)(s_p.acc_wait_us / n),
                  (unsigned long)(s_p.acc_copy_us / n), (unsigned long)(s_p.acc_fx_us / n),
                  s_p.last_half ? " (half)" : "",
                  (unsigned long)(s_p.acc_ui_us / n), (unsigned long)(s_p.acc_total_us / n),
@@ -360,6 +493,20 @@ uint32_t frame_pipeline_reroll(void)
     frame_pipeline_set_seed(seed);
     return seed;
 }
+
+float frame_pipeline_set_zoom(float zoom)
+{
+    uint32_t q = (uint32_t)(zoom * 256.0f + 0.5f);
+    if (q < ZOOM_MIN_Q8) q = ZOOM_MIN_Q8;
+    if (q > ZOOM_MAX_Q8) q = ZOOM_MAX_Q8;
+    s_p.zoom_q8 = q;
+    taskENTER_CRITICAL(&s_p.lock);
+    s_p.recipe.zoom = (float)q / 256.0f;
+    taskEXIT_CRITICAL(&s_p.lock);
+    return (float)q / 256.0f;
+}
+
+float frame_pipeline_get_zoom(void) { return (float)s_p.zoom_q8 / 256.0f; }
 
 void frame_pipeline_set_quality(fp_quality_t q) { s_p.quality = q; }
 bool frame_pipeline_last_was_half(void)         { return s_p.last_half; }

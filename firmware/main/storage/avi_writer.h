@@ -4,20 +4,21 @@
  */
 #pragma once
 #include <stdint.h>
-#include <stdio.h>
 #include <stdbool.h>
 #include "esp_err.h"
+#include "sd_writer.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 typedef struct {
-    FILE *f;
+    sd_writer_t sd;
+    bool open;
     uint32_t w, h;
     uint32_t frames;
     uint32_t max_frame_bytes;
-    long movi_list_pos;      /* file offset of the 'LIST' that holds 'movi' */
+    uint32_t movi_list_pos;  /* file offset of the 'LIST' that holds 'movi' */
     uint32_t *index;         /* pairs: offset (relative to 'movi' fourcc), size */
     uint32_t index_cap;      /* in frames */
     int64_t t_start_us;

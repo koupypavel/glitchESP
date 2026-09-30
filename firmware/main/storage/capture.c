@@ -14,6 +14,7 @@
 #include "mbedtls/base64.h"
 #include "capture.h"
 #include "avi_writer.h"
+#include "sd_writer.h"
 #include "frame_pipeline.h"
 #include "display.h"
 #include "settings.h"
@@ -44,6 +45,7 @@ typedef struct {
     QueueHandle_t jobs;
     volatile bool busy;                    /* a still is in flight */
     bool serial_dump;
+    volatile bool dump_once;               /* next still goes to the serial port, not the card */
     uint32_t count;
     uint32_t seq;
     fp_recipe_t recipe;
@@ -97,12 +99,13 @@ static void write_recipe_json(FILE *f, const char *file, uint32_t jpeg_bytes, in
             "  \"uptime_ms\": %lld,\n"
             "  \"camera\": { \"sensor\": \"OV5647\", \"mode\": \"RAW8_800x1280_50fps\", \"crop\": \"center 720x1280\" },\n"
             "%s"
+            "  \"zoom\": %.2f,\n"
             "  \"amount\": %.3f,\n"
             "  \"seed\": %lu,\n"
             "  \"frame_no\": %lu,\n"
             "  \"effects\": [",
             file, FP_OUT_W, FP_OUT_H, (unsigned long)jpeg_bytes, quality, (unsigned long)seq,
-            (long long)(esp_timer_get_time() / 1000), extra ? extra : "",
+            (long long)(esp_timer_get_time() / 1000), extra ? extra : "", (double)r->zoom,
             (double)r->amount, (unsigned long)r->seed, (unsigned long)r->frame_no);
     int written = 0;
     for (int i = 0; i < r->chain.count; i++) {
@@ -157,12 +160,29 @@ static void on_snapshot(const fp_snapshot_t *snap, void *user)
     xQueueSend(s_c.jobs, &j, 0);
 }
 
+/* Print a JPEG as base64 lines ("J:" prefix so log lines in between can be told apart). */
+static void dump_jpeg_serial(uint32_t out_size)
+{
+    unsigned char line[80];
+    printf("JPEG_B64_BEGIN %lu\n", (unsigned long)out_size);
+    for (uint32_t off = 0; off < out_size; off += 57) {
+        size_t n = out_size - off < 57 ? out_size - off : 57, olen = 0;
+        mbedtls_base64_encode(line, sizeof(line), &olen, s_c.jpg_buf + off, n);
+        line[olen] = 0;
+        printf("J:%s\n", line);
+        if ((off / 57) % 64 == 0) vTaskDelay(1);
+    }
+    printf("JPEG_B64_END\n");
+}
+
 static void do_still(void)
 {
     capture_result_t res = { 0 };
     int64_t t0 = esp_timer_get_time();
     uint32_t out_size = 0;
-    int quality = settings_get()->jpeg_quality;
+    bool dump = s_c.dump_once;
+    s_c.dump_once = false;
+    int quality = dump ? CAPTURE_DUMP_QUALITY : settings_get()->jpeg_quality;
     esp_err_t ret = encode(s_c.raw_buf, quality, &out_size);
     int64_t t1 = esp_timer_get_time();
     res.encode_ms = (uint32_t)((t1 - t0) / 1000);
@@ -170,34 +190,25 @@ static void do_still(void)
     if (ret != ESP_OK) {
         res.error = "JPEG encode failed";
         ESP_LOGE(TAG, "%s: %s", res.error, esp_err_to_name(ret));
+    } else if (dump) {
+        res.error = "sent over serial";
+        dump_jpeg_serial(out_size);
     } else if (!s_c.sd_ok) {
         res.error = "no SD card";
         ESP_LOGW(TAG, "encoded %lu bytes but no SD card mounted", (unsigned long)out_size);
-        if (s_c.serial_dump) {
-            unsigned char line[80];
-            printf("JPEG_B64_BEGIN %lu\n", (unsigned long)out_size);
-            for (uint32_t off = 0; off < out_size; off += 57) {
-                size_t n = out_size - off < 57 ? out_size - off : 57, olen = 0;
-                mbedtls_base64_encode(line, sizeof(line), &olen, s_c.jpg_buf + off, n);
-                line[olen] = 0;
-                printf("%s\n", line);
-                if ((off / 57) % 64 == 0) vTaskDelay(1);
-            }
-            printf("JPEG_B64_END\n");
-        }
+        if (s_c.serial_dump) dump_jpeg_serial(out_size);
     } else {
         uint32_t n = s_c.count + 1;
         snprintf(res.path, sizeof(res.path), CAPTURE_DIR "/IMG_%04lu.jpg", (unsigned long)n);
-        FILE *f = fopen(res.path, "wb");
-        if (!f) {
+        sd_writer_t w;
+        if (sdw_open(&w, res.path) != ESP_OK) {
             res.error = "file open failed";
-            ESP_LOGE(TAG, "%s (%s): %s", res.error, res.path, strerror(errno));
         } else {
-            size_t w = fwrite(s_c.jpg_buf, 1, out_size, f);
-            fclose(f);
-            if (w != out_size) {
-                res.error = "short write";
-                ESP_LOGE(TAG, "%s: %u/%lu", res.error, (unsigned)w, (unsigned long)out_size);
+            esp_err_t wr = sdw_write(&w, s_c.jpg_buf, out_size);
+            esp_err_t cl = sdw_close(&w);
+            if (wr != ESP_OK || cl != ESP_OK) {
+                res.error = "write failed";
+                ESP_LOGE(TAG, "%s: %s", res.error, res.path);
             } else {
                 write_sidecar(res.path, out_size, quality, s_c.seq, NULL);
                 s_c.count = n;
@@ -218,7 +229,7 @@ static void do_still(void)
 
 static void do_video_frame(const job_t *j)
 {
-    if (s_c.rec_active && s_c.avi.f) {
+    if (s_c.rec_active && s_c.avi.open) {
         uint32_t out_size = 0;
         const uint8_t *fb = (const uint8_t *)display_fb(j->fb_idx);
         esp_err_t ret = encode(fb, VIDEO_JPEG_QUALITY, &out_size);
@@ -243,7 +254,7 @@ static void do_video_stop(void)
     strlcpy(res.path, s_c.vpath, sizeof(res.path));
     res.frames = s_c.vframes;
     res.dropped = s_c.vdropped;
-    if (s_c.avi.f) {
+    if (s_c.avi.open) {
         uint32_t dur = 0;
         esp_err_t ret = avi_close(&s_c.avi, &dur);
         res.duration_ms = dur;
@@ -330,6 +341,15 @@ esp_err_t capture_trigger(void)
     s_c.busy = true;
     esp_err_t ret = frame_pipeline_request_capture(s_c.raw_buf, s_c.raw_len, on_snapshot, NULL);
     if (ret != ESP_OK) s_c.busy = false;
+    return ret;
+}
+
+esp_err_t capture_trigger_dump(void)
+{
+    if (s_c.busy || s_c.rec_active) return ESP_ERR_INVALID_STATE;
+    s_c.dump_once = true;
+    esp_err_t ret = capture_trigger();
+    if (ret != ESP_OK) s_c.dump_once = false;
     return ret;
 }
 

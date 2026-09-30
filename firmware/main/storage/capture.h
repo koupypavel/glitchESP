@@ -18,6 +18,7 @@ extern "C" {
 #define CAPTURE_DIR          "/sdcard/GLITCH"
 #define CAPTURE_JPEG_QUALITY 90
 #define VIDEO_JPEG_QUALITY   80
+#define CAPTURE_DUMP_QUALITY 55               /* stills sent over the serial port: keep them small */
 #define VIDEO_MAX_FRAMES     (30 * 60 * 20)   /* 30 min at 20 fps: index memory in PSRAM */
 
 typedef struct {
@@ -46,6 +47,10 @@ esp_err_t capture_init(bool sd_mounted, capture_done_cb_t done_cb, void *user);
 
 /* Trigger a still. Returns ESP_ERR_INVALID_STATE if one is already in flight. */
 esp_err_t capture_trigger(void);
+
+/* Like capture_trigger(), but the JPEG is printed on the serial port as base64 instead of
+ * being saved (development aid: see firmware/decode_jpeg_dump.py). */
+esp_err_t capture_trigger_dump(void);
 
 /* ---- video ---- */
 esp_err_t capture_video_start(video_done_cb_t done_cb, void *user);

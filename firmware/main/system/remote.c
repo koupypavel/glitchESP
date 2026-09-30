@@ -1,0 +1,194 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <dirent.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include "esp_timer.h"
+#include "esp_heap_caps.h"
+#include "esp_private/esp_cache_private.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "driver/uart.h"
+#include "esp_log.h"
+#include "esp_check.h"
+#include "mbedtls/base64.h"
+#include "sdkconfig.h"
+#include "remote.h"
+#include "capture.h"
+#include "frame_pipeline.h"
+#include "ui_live.h"
+#include "ov5647_ctl.h"
+
+static const char *TAG = "remote";
+
+#define REMOTE_UART   ((uart_port_t)CONFIG_ESP_CONSOLE_UART_NUM)
+
+static remote_action_t s_photo, s_video;
+static void *s_user;
+
+static void cmd_ls(void)
+{
+    DIR *d = opendir(CAPTURE_DIR);
+    if (!d) { printf("ls: cannot open %s\n", CAPTURE_DIR); return; }
+    struct dirent *e;
+    int n = 0;
+    while ((e = readdir(d)) != NULL) {
+        char path[300];
+        struct stat st;
+        snprintf(path, sizeof(path), CAPTURE_DIR "/%s", e->d_name);
+        long size = stat(path, &st) == 0 ? (long)st.st_size : -1;
+        printf("ls: %-16s %ld\n", e->d_name, size);
+        n++;
+    }
+    closedir(d);
+    printf("ls: %d entries\n", n);
+}
+
+/* Print a file from the capture folder as base64 lines with an "F:" prefix. */
+static void cmd_get(const char *name)
+{
+    char path[96];
+    snprintf(path, sizeof(path), CAPTURE_DIR "/%s", name);
+    FILE *f = fopen(path, "rb");
+    if (!f) { printf("get: cannot open %s\n", path); return; }
+    struct stat st;
+    long size = stat(path, &st) == 0 ? (long)st.st_size : -1;
+    printf("FILE_B64_BEGIN %s %ld\n", name, size);
+    unsigned char raw[57], line[80];
+    size_t n, olen, lines = 0;
+    while ((n = fread(raw, 1, sizeof(raw), f)) > 0) {
+        mbedtls_base64_encode(line, sizeof(line), &olen, raw, n);
+        line[olen] = 0;
+        printf("F:%s\n", line);
+        if (++lines % 64 == 0) vTaskDelay(1);
+    }
+    fclose(f);
+    printf("FILE_B64_END\n");
+}
+
+/* Card write throughput, three ways (see docs: what the recorder should use). */
+static void cmd_sdbench(void)
+{
+    const size_t chunk = 64 * 1024, total = 4 * 1024 * 1024;
+    const char *path = CAPTURE_DIR "/BENCH.BIN";
+    size_t align = 128;
+    esp_cache_get_alignment(MALLOC_CAP_SPIRAM, &align);
+    uint8_t *ext = heap_caps_aligned_alloc(align, chunk, MALLOC_CAP_SPIRAM);
+    uint8_t *in = heap_caps_aligned_alloc(64, chunk / 2, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    if (!ext || !in) { printf("sdbench: no memory\n"); goto out; }
+    memset(ext, 0xA5, chunk);
+    memset(in, 0x5A, chunk / 2);
+
+    for (int variant = 0; variant < 3; variant++) {
+        int64_t t0 = esp_timer_get_time();
+        size_t done = 0;
+        if (variant < 2) {
+            const uint8_t *buf = variant == 0 ? ext : in;
+            size_t n = variant == 0 ? chunk : chunk / 2;
+            int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (fd < 0) { printf("sdbench: open failed\n"); break; }
+            while (done < total && write(fd, buf, n) == (ssize_t)n) done += n;
+            close(fd);
+        } else {
+            FILE *f = fopen(path, "wb");
+            if (!f) { printf("sdbench: fopen failed\n"); break; }
+            setvbuf(f, NULL, _IOFBF, 32 * 1024);
+            while (done < total && fwrite(ext + 1, 1, 60000, f) == 60000) done += 60000;
+            fclose(f);
+        }
+        int64_t us = esp_timer_get_time() - t0;
+        static const char *const names[] = { "write() 64K, aligned PSRAM buffer", "write() 32K, internal DMA buffer",
+                                             "fwrite() 60K pieces, 32K stdio buffer" };
+        printf("sdbench: %-40s %u KB in %lld ms = %lld KB/s\n", names[variant], (unsigned)(done / 1024),
+               (long long)(us / 1000), us ? (long long)done * 1000000 / 1024 / us : 0);
+    }
+    unlink(path);
+out:
+    heap_caps_free(ext);
+    heap_caps_free(in);
+}
+
+static void cmd_reg(char *args)
+{
+    char *end;
+    unsigned long reg = strtoul(args, &end, 16);
+    while (*end == ' ') end++;
+    if (*end) {
+        unsigned long val = strtoul(end, NULL, 16);
+        esp_err_t r = ov5647_ctl_write((uint16_t)reg, (uint8_t)val);
+        printf("reg %04lx <- %02lx: %s\n", reg, val, esp_err_to_name(r));
+    } else {
+        uint8_t val = 0;
+        esp_err_t r = ov5647_ctl_read((uint16_t)reg, &val);
+        printf("reg %04lx = %02x (%s)\n", reg, val, esp_err_to_name(r));
+    }
+}
+
+static void handle(char *line)
+{
+    char *arg = strchr(line, ' ');
+    if (arg) { *arg++ = 0; while (*arg == ' ') arg++; } else arg = "";
+
+    if (!strcmp(line, "photo")) {
+        if (s_photo) s_photo(s_user);
+    } else if (!strcmp(line, "video")) {
+        if (s_video) s_video(s_user);
+    } else if (!strcmp(line, "dump")) {
+        esp_err_t r = capture_trigger_dump();
+        if (r != ESP_OK) printf("dump: %s\n", esp_err_to_name(r));
+    } else if (!strcmp(line, "zoom")) {
+        if (*arg) ui_live_set_zoom((float)atof(arg));
+        printf("zoom %.2f\n", (double)frame_pipeline_get_zoom());
+    } else if (!strcmp(line, "fx")) {
+        printf("fx %s: %s\n", arg, ui_live_toggle_effect(arg) ? "toggled" : "unknown effect or chain full");
+    } else if (!strcmp(line, "amount")) {
+        ui_live_set_amount((float)atof(arg));
+    } else if (!strcmp(line, "ls")) {
+        cmd_ls();
+    } else if (!strcmp(line, "get")) {
+        cmd_get(arg);
+    } else if (!strcmp(line, "reg")) {
+        cmd_reg(arg);
+    } else if (!strcmp(line, "sdbench")) {
+        cmd_sdbench();
+    } else if (!strcmp(line, "help")) {
+        printf("commands: photo | video | dump | zoom [1..4] | fx <id> | amount <0..1> | ls | get <file> | reg <hex> [hex] | sdbench\n");
+    } else {
+        printf("unknown command '%s' (try help)\n", line);
+    }
+}
+
+static void remote_task(void *arg)
+{
+    (void)arg;
+    char line[64];
+    size_t n = 0;
+    for (;;) {
+        uint8_t c;
+        if (uart_read_bytes(REMOTE_UART, &c, 1, portMAX_DELAY) != 1) continue;
+        if (c == '\r' || c == '\n') {
+            line[n] = 0;
+            if (n) handle(line);
+            n = 0;
+        } else if (c >= 0x20 && c < 0x7f && n < sizeof(line) - 1) {
+            line[n++] = (char)c;
+        }
+    }
+}
+
+esp_err_t remote_init(remote_action_t photo, remote_action_t video, void *user)
+{
+    s_photo = photo;
+    s_video = video;
+    s_user = user;
+    /* RX only: log output keeps using the console's own direct writes. */
+    if (!uart_is_driver_installed(REMOTE_UART)) {
+        ESP_RETURN_ON_ERROR(uart_driver_install(REMOTE_UART, 512, 0, 0, NULL, 0), TAG, "uart driver");
+    }
+    BaseType_t ok = xTaskCreatePinnedToCore(remote_task, "remote", 6 * 1024, NULL, 2, NULL, 0);
+    ESP_RETURN_ON_FALSE(ok == pdPASS, ESP_FAIL, TAG, "task");
+    ESP_LOGI(TAG, "serial remote ready (type help)");
+    return ESP_OK;
+}
