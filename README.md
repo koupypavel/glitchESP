@@ -26,7 +26,8 @@ live, the shutter burns the effect into the saved photo or video, and every shot
   at roughly 12 fps.
 - **Zoom** from 1× to 6×. 1× uses the sensor's 2×2 binned mode (widest view, least noise),
   1.5× shows sensor pixels one to one, beyond that the picture is enlarged digitally.
-- **Presets**: eight slots for effect recipes (effects, amount, seed), stored in flash.
+- **Presets**: eight slots for effect recipes (effects, amount, seed), stored in flash;
+  four starter looks are filled in on first boot.
 - **Gallery**: browse the photos and play the videos on the card, delete them, or take the
   look of any picture back into the camera ("Use look" reads its recipe sidecar).
 - **Settings** for mirror, flip and preview quality, stored in flash.
@@ -36,7 +37,7 @@ live, the shutter burns the effect into the saved photo or video, and every shot
 | Input | Action |
 |---|---|
 | Effect chips (bottom bar) | Toggle an effect; up to three run in order |
-| Handle (tab above the bar) | Hide the control bar for a clear view, or bring it back; remembered |
+| Handle (tab above the bar) | Hide the controls (bar, status line, zoom) for a clear view, or bring them back; remembered |
 | Amount slider | Intensity of all active effects |
 | Edit button (pencil) | A slider or switch for every parameter of each active effect, with a reset |
 | Seed button (arrows) | New random seed |
@@ -46,6 +47,21 @@ live, the shutter burns the effect into the saved photo or video, and every shot
 | Gear button | Settings: mirror left/right, flip up/down, full-resolution photos, preview quality |
 | BOOT button, short press | Take a photo (in the gallery: back to the camera) |
 | BOOT button, hold 0.7 s | Start or stop video recording |
+
+### Optional wired controls
+
+Buttons and a rotary encoder can be wired to the 40-pin header. Every input has a pull-up
+and switches to ground, so nothing needs to be connected for the camera to work. Check the
+header's orientation against the board's silkscreen before wiring.
+
+| Control | GPIO | Header pin | Action |
+|---|---|---|---|
+| Shutter button | 21 | 15 (ground: 13) | Click = photo, hold = video, as BOOT |
+| Re-roll button | 22 | 17 (ground: 19) | New random seed |
+| Encoder A / B | 29 / 30 | 20 / 22 (common to ground: 26) | Amount knob; in the gallery, previous / next |
+| Encoder push | 31 | 24 | Click = next preset (in the gallery: play), hold = hide / show the controls |
+
+These are implemented but have not been tried with real switches yet.
 
 ## Hardware
 
@@ -102,8 +118,9 @@ what was learned about performance on the ESP32-P4.
 
 Working on the device: preview, all twelve effects on both cores, parameter editing,
 presets, zoom, settings, photos (including full-resolution stills) and video saved to the
-card, and the gallery. Still planned: a wired shutter button and rotary knob on the
-expansion header, and a smaller video format using the P4's H.264 encoder.
+card, and the gallery. The wired controls on the header are implemented but untested.
+Still open from the original plan: a shutter sound, a battery indicator, and a smaller
+video format using the P4's H.264 encoder.
 
 ## License
 

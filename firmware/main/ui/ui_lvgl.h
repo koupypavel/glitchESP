@@ -29,6 +29,13 @@ void ui_lvgl_unlock(void);
 /* Stamp the UI layer onto a 720x1280 RGB565 frame buffer (called from the camera task). */
 void ui_lvgl_stamp(uint16_t *fb);
 
+/* Idle handling: poke() on any user action (touch does it by itself). After `after_ms`
+ * without one, dim_if_idle() turns the backlight down; the next poke() turns it back up. */
+void ui_lvgl_poke(void);
+uint32_t ui_lvgl_idle_ms(void);
+bool ui_lvgl_dimmed(void);
+void ui_lvgl_dim_if_idle(uint32_t after_ms);
+
 /* Full-white flash for the next `frames` frames (shutter feedback). */
 void ui_lvgl_flash(int frames);
 

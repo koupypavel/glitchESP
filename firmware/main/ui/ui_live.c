@@ -15,6 +15,8 @@
 
 static const char *TAG = "ui_live";
 
+#define IDLE_DIM_MS 60000
+
 #define BAR_H   330     /* bottom control bar: three rows of chips, amount slider, tool buttons */
 
 /* colours that map exactly onto the UI layer keys (see ui_lvgl.h) */
@@ -336,6 +338,7 @@ static void settings_switch_cb(lv_event_t *e)
     if (which == 0) cfg.flip_h = on;
     if (which == 1) cfg.flip_v = on;
     if (which == 2) cfg.photo_hires = on;
+    if (which == 3) cfg.idle_dim = on;
     settings_set(&cfg);
 }
 
@@ -382,7 +385,7 @@ static void settings_open_cb(lv_event_t *e)
     if (s_settings) return;
     const settings_t *cfg = settings_get();
     s_settings = lv_obj_create(lv_screen_active());
-    lv_obj_set_size(s_settings, FP_OUT_W - 60, 430);
+    lv_obj_set_size(s_settings, FP_OUT_W - 60, 496);
     lv_obj_align(s_settings, LV_ALIGN_CENTER, 0, -80);
     lv_obj_set_style_bg_color(s_settings, lv_color_hex(0x181818), 0);
     lv_obj_set_style_bg_opa(s_settings, LV_OPA_COVER, 0);
@@ -401,6 +404,7 @@ static void settings_open_cb(lv_event_t *e)
     add_switch_row(s_settings, "Mirror left/right", cfg->flip_h, 0);
     add_switch_row(s_settings, "Flip up/down", cfg->flip_v, 1);
     add_switch_row(s_settings, "Full-resolution photos (1x)", cfg->photo_hires, 2);
+    add_switch_row(s_settings, "Dim screen when idle", cfg->idle_dim, 3);
 
     lv_obj_t *row = lv_obj_create(s_settings);
     lv_obj_set_size(row, LV_PCT(100), 64);
@@ -466,8 +470,13 @@ static void tool_button(lv_obj_t *bar, const char *symbol, uint32_t color, lv_ev
 static void set_bar_hidden(bool hidden, bool remember)
 {
     s_bar_hidden = hidden;
-    if (hidden) lv_obj_add_flag(s_bar, LV_OBJ_FLAG_HIDDEN);
-    else        lv_obj_remove_flag(s_bar, LV_OBJ_FLAG_HIDDEN);
+    /* the status line and the zoom buttons go with the bar: only the handle stays */
+    lv_obj_t *objs[] = { s_bar, s_status, s_zoom_btn[0], s_zoom_btn[1], s_zoom_label };
+    for (size_t i = 0; i < sizeof(objs) / sizeof(objs[0]); i++) {
+        if (!objs[i]) continue;
+        if (hidden) lv_obj_add_flag(objs[i], LV_OBJ_FLAG_HIDDEN);
+        else        lv_obj_remove_flag(objs[i], LV_OBJ_FLAG_HIDDEN);
+    }
     lv_obj_align(s_handle, LV_ALIGN_BOTTOM_MID, 0, hidden ? 0 : -BAR_H);
     lv_label_set_text(s_handle_label, hidden ? LV_SYMBOL_UP : LV_SYMBOL_DOWN);
     if (hidden) ui_editor_close();
@@ -571,6 +580,11 @@ static void status_timer_cb(lv_timer_t *t)
                           (unsigned long)(frame_pipeline_get_fx_us() / 1000),
                           capture_sd_available() ? "SD ok" : "no SD",
                           (unsigned long)capture_get_count());
+    static int s_tick;
+    if (++s_tick % 5 == 0) capture_sd_poll();               /* a card put in after boot */
+    /* a minute without input turns the backlight down; recording counts as input */
+    if (capture_video_active()) ui_lvgl_poke();
+    else if (settings_get()->idle_dim) ui_lvgl_dim_if_idle(IDLE_DIM_MS);
 }
 
 void ui_live_create(void)
@@ -682,6 +696,53 @@ void ui_live_set_bar_hidden(bool hidden)
 {
     if (!ui_lvgl_lock(200)) return;
     set_bar_hidden(hidden, true);
+    ui_lvgl_unlock();
+}
+
+void ui_live_toggle_bar(void)
+{
+    if (!ui_lvgl_lock(200)) return;
+    set_bar_hidden(!s_bar_hidden, true);
+    ui_lvgl_unlock();
+}
+
+void ui_live_adjust_amount(int steps)
+{
+    if (!ui_lvgl_lock(200)) return;
+    int32_t v = lv_slider_get_value(s_slider) + steps * 2;       /* 2 % per detent */
+    v = v < 0 ? 0 : (v > 100 ? 100 : v);
+    lv_slider_set_value(s_slider, v, LV_ANIM_OFF);
+    frame_pipeline_set_amount((float)v / 100.0f);
+    ui_editor_sync();
+    char msg[24];
+    snprintf(msg, sizeof(msg), "amount %d%%", (int)v);
+    toast_show(msg, 700);
+    ui_lvgl_unlock();
+}
+
+void ui_live_reroll(void)
+{
+    if (!ui_lvgl_lock(200)) return;
+    reroll_event_cb(NULL);
+    ui_lvgl_unlock();
+}
+
+/* Step to the next stored preset (wrapping); with none stored it says so. */
+void ui_live_next_preset(void)
+{
+    static int s_last = -1;
+    if (!ui_lvgl_lock(200)) return;
+    int found = -1;
+    for (int i = 1; i <= PRESET_SLOTS && found < 0; i++) {
+        int slot = (s_last + i + PRESET_SLOTS) % PRESET_SLOTS;
+        if (presets_exists(slot)) found = slot;
+    }
+    if (found >= 0) {
+        s_last = found;
+        preset_load(found);
+    } else {
+        toast_show("no presets saved", 1200);
+    }
     ui_lvgl_unlock();
 }
 

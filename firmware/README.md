@@ -28,7 +28,7 @@ profile that matches your board (`esptool.py chip_id` prints the revision).
 | `main/display/` | The panel's three frame buffers: acquire, submit, hold for the video encoder |
 | `main/ui/` | LVGL widgets drawn into a separate layer that is stamped onto each frame; the gallery |
 | `main/storage/` | Stills (hardware JPEG + `.json` recipe), Motion-JPEG AVI, fast SD writer |
-| `main/input/` | BOOT button (GPIO35): short press = photo, hold 0.7 s = start/stop video |
+| `main/input/` | BOOT button, plus optional buttons and a rotary encoder on the header (pins in `buttons.h`) |
 | `main/system/` | Settings and presets in NVS, serial remote |
 | `main/bench.c` | On-device benchmark, enabled with `GLITCH_BENCH` in `app_main.c` |
 
@@ -121,7 +121,7 @@ checked from a PC:
 
 ```
 photo | video | dump | stilldump | uidump | zoom [1..6] | fx <id> | amount <0..1>
-bar 0/1 | edit [fx]|close | param <fx> <param> <value>
+bar 0/1 | knob <steps>|click|reroll | idle [poke] | eject | edit [fx]|close | param <fx> <param> <value>
 recipe | preset list|save N|load N|clear N|panel 0/1 | settings 0/1 | ae
 gallery open|close|next|prev|play|look|delete
 ls | get <file> | reg <hex> [hex] | tele <x0> <y0> | sdbench | help
@@ -136,8 +136,21 @@ python serial_capture.py COM10 30 --out run.log 5:dump 20:"zoom 1.5" 22:photo 25
 python decode_jpeg_dump.py run.log frame.jpg
 ```
 
+## Small things
+
+- **Idle dimming:** after a minute without touch or buttons the backlight goes to 15 %;
+  any input brings it back. Recording counts as input. There is a switch in the settings.
+- **The SD card can be put in at any time.** A card that is missing at boot is looked for
+  every five seconds, and again whenever a photo, a recording or the gallery needs it. A
+  failed write unmounts the card so that it can be mounted again.
+- **Starter presets** go into empty slots 1 to 4 on the first boot only.
+
 ## Notes on the hardware
 
+- **The board library's SD mount cannot be called twice.** It creates a new power-control
+  handle for the card supply on every call and never releases it, so after one failed
+  mount (no card at boot) every later one fails with "Failed to create a new on-chip LDO
+  power control driver". `storage/sd_card.c` mounts the card itself and keeps the handle.
 - **SD card speed** depends on how the data is handed over. Writing 4 MB: `fwrite` through
   stdio 1.8 MB/s, `write()` from a cache-aligned PSRAM buffer 2.8 MB/s, `write()` of 32 KB
   from an on-chip DMA buffer 5.2 MB/s. `storage/sd_writer.c` does the last.

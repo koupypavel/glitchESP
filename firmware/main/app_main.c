@@ -9,6 +9,7 @@
 #include "esp_private/esp_cache_private.h"
 #include "nvs_flash.h"
 #include "sdmmc_cmd.h"
+#include "sd_card.h"
 #include "bsp/esp-bsp.h"
 #include "bsp/display.h"
 #include "esp_video_init.h"
@@ -27,6 +28,7 @@
 #include "remote.h"
 #include "cam_ctrl.h"
 #include "gallery.h"
+#include "presets.h"
 
 #define GLITCH_BENCH 0          /* 1 = run main/bench.c after boot (effect timings, test shot) */
 void bench_start(void);
@@ -49,6 +51,7 @@ static void on_video_done(const video_result_t *res, void *user)
 static void on_video(void *user)
 {
     (void)user;
+    ui_lvgl_poke();
     if (gallery_active()) return;
     if (capture_video_active()) {
         capture_video_stop();
@@ -66,6 +69,7 @@ static void on_video(void *user)
 static void on_shutter(void *user)
 {
     (void)user;
+    ui_lvgl_poke();
     if (gallery_active()) {                 /* the shutter leads back to the camera */
         gallery_close();
         return;
@@ -82,6 +86,43 @@ static void on_shutter(void *user)
     }
 }
 
+/* ---- header controls (see input/buttons.h) ---- */
+
+static void on_reroll(void *user)
+{
+    (void)user;
+    ui_lvgl_poke();
+    if (!gallery_active()) ui_live_reroll();
+}
+
+/* Encoder: the amount knob; in the gallery it pages through the pictures. */
+static void on_knob_turn(int steps, void *user)
+{
+    (void)user;
+    ui_lvgl_poke();
+    if (gallery_active()) {
+        if (steps > 0) gallery_next();
+        else           gallery_prev();
+    } else {
+        ui_live_adjust_amount(steps);
+    }
+}
+
+static void on_knob_click(void *user)
+{
+    (void)user;
+    ui_lvgl_poke();
+    if (gallery_active()) gallery_play();
+    else                  ui_live_next_preset();
+}
+
+static void on_knob_hold(void *user)
+{
+    (void)user;
+    ui_lvgl_poke();
+    if (!gallery_active()) ui_live_toggle_bar();
+}
+
 void app_main(void)
 {
     /* NVS for the shot counter */
@@ -91,17 +132,19 @@ void app_main(void)
         ESP_ERROR_CHECK(nvs_flash_init());
     }
     ESP_ERROR_CHECK(settings_init());       /* read early: the UI is built from them */
+    presets_install_defaults();
 
     /* Panel frame buffers (video path) and LVGL (widgets only), see display/ and ui/ui_lvgl.c */
     ESP_ERROR_CHECK(display_init());
     ESP_ERROR_CHECK(ui_lvgl_init());
 
     /* microSD (optional) */
-    bool sd_ok = (bsp_sdcard_mount() == ESP_OK);
+    bool sd_ok = (sd_card_mount() == ESP_OK);
     if (sd_ok) {
-        ESP_LOGI(TAG, "SD card mounted at %s (%s, %llu MB)", BSP_SD_MOUNT_POINT, bsp_sdcard->cid.name,
-                 ((uint64_t)bsp_sdcard->csd.capacity * bsp_sdcard->csd.sector_size) / (1024 * 1024));
-        sdmmc_card_print_info(stdout, bsp_sdcard);
+        const sdmmc_card_t *card = sd_card_info();
+        ESP_LOGI(TAG, "SD card mounted at %s (%s, %llu MB)", SD_MOUNT_POINT, card->cid.name,
+                 ((uint64_t)card->csd.capacity * card->csd.sector_size) / (1024 * 1024));
+        sdmmc_card_print_info(stdout, card);
     } else {
         ESP_LOGW(TAG, "no SD card: shots will not be saved");
     }
@@ -149,7 +192,11 @@ void app_main(void)
     ESP_ERROR_CHECK(cam_ctrl_start());                                /* camera + pipeline on core 1 */
 
     /* Shutter */
-    ESP_ERROR_CHECK(buttons_init(on_shutter, on_video, NULL));
+    const buttons_handlers_t handlers = {
+        .shutter = on_shutter, .video = on_video, .reroll = on_reroll,
+        .knob_click = on_knob_click, .knob_hold = on_knob_hold, .knob_turn = on_knob_turn,
+    };
+    ESP_ERROR_CHECK(buttons_init(&handlers));
     ESP_ERROR_CHECK(remote_init(on_shutter, on_video, NULL));   /* same actions over the serial port */
 
 

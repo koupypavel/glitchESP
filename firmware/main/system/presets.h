@@ -19,6 +19,7 @@ extern "C" {
 
 #define PRESET_SLOTS 8
 
+void presets_install_defaults(void);   /* first boot only: four starter looks in slots 1 to 4 */
 bool presets_exists(int slot);
 esp_err_t presets_save(int slot, const fp_recipe_t *recipe);
 /* Fills chain, amount and seed of `out` (other fields untouched). ESP_ERR_NOT_FOUND if empty. */

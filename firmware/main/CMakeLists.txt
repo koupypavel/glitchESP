@@ -10,6 +10,7 @@ set(srcs
     "storage/capture.c"
     "storage/avi_writer.c"
     "storage/sd_writer.c"
+    "storage/sd_card.c"
     "ui/ui_live.c"
     "ui/gallery.c"
     "ui/ui_editor.c"

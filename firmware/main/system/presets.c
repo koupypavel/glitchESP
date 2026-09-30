@@ -125,6 +125,38 @@ esp_err_t presets_clear(int slot)
     return ret;
 }
 
+/* A few looks to start from, written to the first slots once (never again, so deleting
+ * or replacing them sticks). */
+void presets_install_defaults(void)
+{
+    static const struct { const char *fx[FX_CHAIN_MAX]; float amount; uint32_t seed; } k_def[] = {
+        { { "chanshift", "scanline", NULL },    0.55f, 0x51641055 },   /* signal loss */
+        { { "tracers", "hueshift", "drift" },   0.50f, 0x0ACED0DA },   /* melt */
+        { { "wave", "kaleido", NULL },          0.40f, 0x00C0FFEE },   /* mirror pool */
+        { { "blocks", "bitcrush", "pixelsort" }, 0.60f, 0x0DA7A207 },  /* data rot */
+    };
+    nvs_handle_t h;
+    uint8_t done = 0;
+    if (nvs_open(NS, NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_get_u8(h, "preset_def", &done);
+    if (!done) {
+        nvs_set_u8(h, "preset_def", 1);
+        nvs_commit(h);
+    }
+    nvs_close(h);
+    if (done) return;
+    for (int i = 0; i < (int)(sizeof(k_def) / sizeof(k_def[0])) && i < PRESET_SLOTS; i++) {
+        if (presets_exists(i)) continue;
+        fp_recipe_t r = { .amount = k_def[i].amount, .seed = k_def[i].seed, .zoom = 1.0f };
+        fx_chain_clear(&r.chain);
+        for (int k = 0; k < FX_CHAIN_MAX && k_def[i].fx[k]; k++) {
+            fx_chain_add(&r.chain, fx_registry_find(k_def[i].fx[k]));
+        }
+        fx_chain_set_amount(&r.chain, r.amount);
+        presets_save(i, &r);
+    }
+}
+
 void presets_describe(int slot, char *buf, size_t len)
 {
     preset_blob_t b;

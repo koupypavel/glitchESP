@@ -19,6 +19,7 @@
 #include "capture.h"
 #include "frame_pipeline.h"
 #include "ui_live.h"
+#include "ui_lvgl.h"
 #include "ov5647_ctl.h"
 #include "cam_ctrl.h"
 #include "auto_exposure.h"
@@ -195,6 +196,14 @@ static void handle(char *line)
         else printf("usage: gallery open|close|next|prev|play|look|delete\n");
     } else if (!strcmp(line, "settings")) {
         ui_live_show_panel(1, atoi(arg) != 0);
+    } else if (!strcmp(line, "knob")) {
+        /* what the header controls do: knob <steps> | knob click | knob reroll */
+        if (!strcmp(arg, "click"))       ui_live_next_preset();
+        else if (!strcmp(arg, "reroll")) ui_live_reroll();
+        else                             ui_live_adjust_amount(atoi(arg));
+    } else if (!strcmp(line, "idle")) {
+        if (!strcmp(arg, "poke")) ui_lvgl_poke();
+        printf("idle: %lu ms, backlight %s\n", (unsigned long)ui_lvgl_idle_ms(), ui_lvgl_dimmed() ? "dimmed" : "full");
     } else if (!strcmp(line, "recipe")) {
         fp_recipe_t r;
         frame_pipeline_get_recipe(&r);
@@ -222,6 +231,8 @@ static void handle(char *line)
         auto_exposure_get(&ae);
         printf("ae: frame %lu luma %u rgb %u %u %u expo %lu gain %lu/16\n", (unsigned long)ae.frame, ae.measured_luma,
                ae.mean_r, ae.mean_g, ae.mean_b, (unsigned long)ae.exposure_lines, (unsigned long)ae.gain_x16);
+    } else if (!strcmp(line, "eject")) {
+        capture_sd_eject();                     /* unmount; the next photo mounts the card again */
     } else if (!strcmp(line, "ls")) {
         cmd_ls();
     } else if (!strcmp(line, "get")) {
@@ -231,8 +242,8 @@ static void handle(char *line)
     } else if (!strcmp(line, "sdbench")) {
         cmd_sdbench();
     } else if (!strcmp(line, "help")) {
-        printf("commands: photo | video | dump | stilldump | uidump | zoom [1..6] | fx <id> | amount <0..1> | bar 0/1 | edit [fx]|close | param <fx> <id> <value> | recipe | "
-               "preset list|save N|load N|clear N|panel 0/1 | settings 0/1 | gallery open|close|next|prev|play|look|delete | ae | ls | get <file> | reg <hex> [hex] | tele <x0> <y0> | sdbench\n");
+        printf("commands: photo | video | dump | stilldump | uidump | zoom [1..6] | fx <id> | amount <0..1> | bar 0/1 | edit [fx]|close | param <fx> <id> <value> | knob <steps>|click|reroll | idle [poke] | recipe | "
+               "preset list|save N|load N|clear N|panel 0/1 | settings 0/1 | gallery open|close|next|prev|play|look|delete | ae | eject | ls | get <file> | reg <hex> [hex] | tele <x0> <y0> | sdbench\n");
     } else {
         printf("unknown command '%s' (try help)\n", line);
     }

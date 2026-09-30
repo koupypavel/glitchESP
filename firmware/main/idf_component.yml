@@ -12,5 +12,6 @@ dependencies:
   waveshare/esp32_p4_wifi6_touch_lcd_5: "^1.0.4"
   waveshare/esp_lcd_hx8394: "^2.1.0"
 
-  # GPIO button driver (shutter)
+  # GPIO button driver (shutter) and rotary encoder
   espressif/button: "^4"
+  espressif/knob: "^1"

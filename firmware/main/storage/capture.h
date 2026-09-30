@@ -73,6 +73,11 @@ void      capture_video_on_frame(int fb_idx, uint32_t seq);
 
 bool capture_busy(void);                     /* a still is being taken or saved */
 bool capture_sd_available(void);
+bool capture_sd_ensure(void);                /* mount the card now if it is not (false: still none) */
+void capture_sd_poll(void);                  /* call every few seconds: looks for a card put in after boot */
+/* Unmount the card (safe to pull). The next photo or recording mounts it again, which is
+ * also how a card that was put in after boot gets picked up. */
+void capture_sd_eject(void);
 void capture_set_serial_dump(bool enable);   /* no SD card: dump JPEG as base64 over serial */
 uint32_t capture_get_count(void);
 

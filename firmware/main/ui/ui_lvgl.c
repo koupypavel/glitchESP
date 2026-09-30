@@ -90,6 +90,40 @@ static void flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
     lv_display_flush_ready(disp);
 }
 
+/* ---- activity and backlight ---- */
+
+#define DIM_PERCENT 15
+
+static volatile int64_t s_last_activity_us;
+static volatile bool s_dimmed;
+
+void ui_lvgl_poke(void)
+{
+    s_last_activity_us = esp_timer_get_time();
+    if (s_dimmed) {
+        s_dimmed = false;
+        bsp_display_brightness_set(100);
+    }
+}
+
+uint32_t ui_lvgl_idle_ms(void)
+{
+    return (uint32_t)((esp_timer_get_time() - s_last_activity_us) / 1000);
+}
+
+bool ui_lvgl_dimmed(void)
+{
+    return s_dimmed;
+}
+
+void ui_lvgl_dim_if_idle(uint32_t after_ms)
+{
+    if (!s_dimmed && ui_lvgl_idle_ms() >= after_ms) {
+        s_dimmed = true;
+        bsp_display_brightness_set(DIM_PERCENT);
+    }
+}
+
 static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
 {
     (void)indev;
@@ -98,6 +132,7 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
     esp_lcd_touch_read_data(s_u.touch);
     bool pressed = esp_lcd_touch_get_coordinates(s_u.touch, x, y, strength, &n, 1);
     if (pressed && n > 0) {
+        ui_lvgl_poke();
         data->point.x = x[0];
         data->point.y = y[0];
         data->state = LV_INDEV_STATE_PRESSED;

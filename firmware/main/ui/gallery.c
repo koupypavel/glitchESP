@@ -413,6 +413,7 @@ static void do_open(void)
         lv_obj_remove_flag(s_g.root, LV_OBJ_FLAG_HIDDEN);
         ui_lvgl_unlock();
     }
+    capture_sd_ensure();                                /* a card put in after boot */
     scan();
     /* start at the newest photo (videos sort after the photos) */
     int start = s_g.count - 1;

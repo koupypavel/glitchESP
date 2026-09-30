@@ -19,6 +19,7 @@
 #include "display.h"
 #include "settings.h"
 #include "cam_ctrl.h"
+#include "sd_card.h"
 
 static const char *TAG = "capture";
 
@@ -27,7 +28,7 @@ static const char *TAG = "capture";
 #define NVS_KEY_VCOUNT  "vid_count"
 #define JPEG_OUT_MAX    (2 * 1024 * 1024)
 
-typedef enum { JOB_STILL, JOB_VIDEO_FRAME, JOB_VIDEO_STOP } job_type_t;
+typedef enum { JOB_STILL, JOB_VIDEO_FRAME, JOB_VIDEO_STOP, JOB_SD_CHECK } job_type_t;
 typedef struct {
     job_type_t type;
     int fb_idx;
@@ -54,6 +55,8 @@ typedef struct {
     /* video */
     volatile bool rec_active;
     volatile bool rec_encoding;            /* a frame job is queued or being encoded */
+    bool rec_failed;                       /* a video write failed: the card is probably gone */
+    bool ejected;                          /* unmounted on request: do not re-mount by ourselves */
     avi_writer_t avi;
     video_done_cb_t vdone_cb;
     void *vuser;
@@ -157,6 +160,58 @@ static esp_err_t encode(const uint8_t *rgb565, int quality, uint32_t *out_size)
     return encode_wh(rgb565, FP_OUT_W, FP_OUT_H, quality, out_size);
 }
 
+/* The card may have been put in after boot: try to mount it when something wants to save
+ * (at most every few seconds, a failed attempt takes a while). */
+static bool sd_ensure(void)
+{
+    static int64_t s_last_try;
+    if (s_c.sd_ok) return true;
+    int64_t now = esp_timer_get_time();
+    if (s_last_try && now - s_last_try < 3000000) return false;
+    s_last_try = now;
+    if (sd_card_mount() != ESP_OK) return false;
+    struct stat st;
+    if (stat(CAPTURE_DIR, &st) != 0 && mkdir(CAPTURE_DIR, 0775) != 0) {
+        ESP_LOGE(TAG, "mkdir %s failed: %s", CAPTURE_DIR, strerror(errno));
+        sd_card_unmount();
+        return false;
+    }
+    ESP_LOGI(TAG, "SD card mounted after boot");
+    s_c.sd_ok = true;
+    s_c.ejected = false;
+    return true;
+}
+
+/* A write failed: most likely the card was pulled. Let go of it so it can be mounted again. */
+static void sd_lost(void)
+{
+    if (!s_c.sd_ok) return;
+    ESP_LOGW(TAG, "SD card write failed: unmounting");
+    s_c.sd_ok = false;
+    sd_card_unmount();
+}
+
+bool capture_sd_ensure(void)
+{
+    return sd_ensure();
+}
+
+void capture_sd_poll(void)
+{
+    if (s_c.sd_ok || s_c.ejected || s_c.busy || s_c.rec_active || !s_c.jobs) return;
+    job_t j = { .type = JOB_SD_CHECK };
+    xQueueSend(s_c.jobs, &j, 0);
+}
+
+void capture_sd_eject(void)
+{
+    if (s_c.busy || s_c.rec_active) return;
+    s_c.sd_ok = false;
+    s_c.ejected = true;
+    sd_card_unmount();
+    ESP_LOGI(TAG, "SD card released");
+}
+
 /* Write the encoded JPEG in jpg_buf as the next IMG_nnnn.jpg plus its sidecar. */
 static void store_still(capture_result_t *res, uint32_t out_size, uint32_t w, uint32_t h, int quality)
 {
@@ -165,6 +220,7 @@ static void store_still(capture_result_t *res, uint32_t out_size, uint32_t w, ui
     sd_writer_t wr;
     if (sdw_open(&wr, res->path) != ESP_OK) {
         res->error = "file open failed";
+        sd_lost();
         return;
     }
     esp_err_t e1 = sdw_write(&wr, s_c.jpg_buf, out_size);
@@ -172,6 +228,7 @@ static void store_still(capture_result_t *res, uint32_t out_size, uint32_t w, ui
     if (e1 != ESP_OK || e2 != ESP_OK) {
         res->error = "write failed";
         ESP_LOGE(TAG, "%s: %s", res->error, res->path);
+        sd_lost();
         return;
     }
     write_sidecar(res->path, w, h, out_size, quality, s_c.seq, NULL);
@@ -224,7 +281,7 @@ static void do_still(void)
     } else if (dump) {
         res.error = "sent over serial";
         dump_jpeg_serial(out_size);
-    } else if (!s_c.sd_ok) {
+    } else if (!sd_ensure()) {
         res.error = "no SD card";
         ESP_LOGW(TAG, "encoded %lu bytes but no SD card mounted", (unsigned long)out_size);
         if (s_c.serial_dump) dump_jpeg_serial(out_size);
@@ -252,6 +309,9 @@ static void do_video_frame(const job_t *j)
             } else {
                 ESP_LOGE(TAG, "avi write failed, stopping");
                 s_c.rec_active = false;
+                s_c.rec_failed = true;
+                job_t stop = { .type = JOB_VIDEO_STOP };     /* close the file and report */
+                xQueueSend(s_c.jobs, &stop, 0);
             }
         } else {
             ESP_LOGE(TAG, "video encode failed: %s", esp_err_to_name(ret));
@@ -284,6 +344,10 @@ static void do_video_stop(void)
     }
     ESP_LOGI(TAG, "video %s: %lu frames, %lu ms, %lu dropped", res.ok ? "saved" : "failed",
              (unsigned long)res.frames, (unsigned long)res.duration_ms, (unsigned long)res.dropped);
+    if (s_c.rec_failed) {
+        s_c.rec_failed = false;
+        sd_lost();
+    }
     if (s_c.vdone_cb) s_c.vdone_cb(&res, s_c.vuser);
 }
 
@@ -297,6 +361,7 @@ static void capture_task(void *arg)
         case JOB_STILL:       do_still(); break;
         case JOB_VIDEO_FRAME: do_video_frame(&j); break;
         case JOB_VIDEO_STOP:  do_video_stop(); break;
+        case JOB_SD_CHECK:    sd_ensure(); break;
         }
     }
 }
@@ -388,7 +453,7 @@ void capture_finish_external(const uint8_t *rgb565, uint32_t w, uint32_t h, cons
         } else if (dump) {
             res.error = "sent over serial";
             dump_jpeg_serial(out_size);
-        } else if (!s_c.sd_ok) {
+        } else if (!sd_ensure()) {
             res.error = "no SD card";
         } else {
             store_still(&res, out_size, w, h, quality);
@@ -427,7 +492,7 @@ esp_err_t capture_trigger_screenshot(void)
 esp_err_t capture_video_start(video_done_cb_t done_cb, void *user)
 {
     if (s_c.rec_active || s_c.busy) return ESP_ERR_INVALID_STATE;
-    if (!s_c.sd_ok) return ESP_ERR_NOT_FOUND;
+    if (!sd_ensure()) return ESP_ERR_NOT_FOUND;
     uint32_t n = s_c.vcount + 1;
     snprintf(s_c.vpath, sizeof(s_c.vpath), CAPTURE_DIR "/VID_%04lu.avi", (unsigned long)n);
     ESP_RETURN_ON_ERROR(avi_open(&s_c.avi, s_c.vpath, FP_OUT_W, FP_OUT_H, VIDEO_MAX_FRAMES), TAG, "avi open");

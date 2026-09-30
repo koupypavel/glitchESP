@@ -34,6 +34,10 @@ void ui_live_set_amount(float amount);
 bool ui_live_editor(const char *fx_id, bool open);      /* parameter editor; "" = first active effect */
 bool ui_live_set_param(const char *fx_id, const char *param_id, float value);
 void ui_live_set_bar_hidden(bool hidden);               /* the control bar; the choice is remembered */
+void ui_live_toggle_bar(void);
+void ui_live_adjust_amount(int steps);                  /* rotary knob: 2 % per step */
+void ui_live_reroll(void);                              /* new seed */
+void ui_live_next_preset(void);                         /* cycle through the stored presets */
 bool ui_live_preset(int slot, bool save);     /* slot 0..PRESET_SLOTS-1: store the current look, or recall */
 void ui_live_show_panel(int panel, bool show); /* open / close a panel: 0 presets, 1 settings */
 
