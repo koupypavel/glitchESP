@@ -173,17 +173,22 @@ int main(int argc, char **argv)
     fx_frame_t fin = { in, (uint16_t)w, (uint16_t)h, (uint32_t)w };
     fx_frame_t fout = { out, (uint16_t)w, (uint16_t)h, (uint32_t)w };
     fx_frame_t ftmp = { tmp, (uint16_t)w, (uint16_t)h, (uint32_t)w };
-    fx_ctx_t ctx = { .seed = seed, .frame_no = frame, .prev = NULL, .scratch = NULL, .scratch_len = 0 };
+    /* history for temporal effects: with --repeat N the same input is fed N times, like a
+     * camera looking at a still scene, and the last frame is saved */
+    uint16_t *hist = malloc((size_t)w * h * 2);
+    fx_frame_t fhist = { hist, (uint16_t)w, (uint16_t)h, (uint32_t)w };
+    fx_ctx_t ctx = { .seed = seed, .frame_no = frame, .prev = NULL, .keep = &fhist, .scratch = NULL, .scratch_len = 0 };
 
     clock_t t0 = clock();
     for (int r = 0; r < repeat; r++) {
         ctx.frame_no = frame + (uint32_t)r;
+        ctx.prev = r > 0 ? &fhist : NULL;
         fx_chain_apply(&chain, &fin, &fout, &ftmp, &ctx);
     }
     double ms = (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC / (repeat > 0 ? repeat : 1);
     printf("%dx%d, %d effect(s), %.2f ms/frame on this PC\n", w, h, chain.count, ms);
 
     int rc = save_ppm(argv[2], out, w, h);
-    free(in); free(out); free(tmp);
+    free(in); free(out); free(tmp); free(hist);
     return rc;
 }

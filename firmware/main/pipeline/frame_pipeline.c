@@ -30,9 +30,9 @@ static const char *TAG = "pipeline";
 typedef struct {
     size_t cache_line;
     uint8_t *tmp_buf;                 /* ping-pong buffer for multi-effect chains */
-    uint16_t *half_in, *half_tmp, *half_out[2];   /* 360x640 working frames; half_out ping-pongs */
-    int half_cur;                                  /* which half_out holds the latest output */
-    uint16_t *prev_full;                           /* previous full-res clean output (temporal fx) */
+    uint16_t *half_in, *half_tmp, *half_out;      /* 360x640 working frames */
+    uint16_t *prev_half;                           /* temporal effect's previous output, half res */
+    uint16_t *prev_full;                           /* ... and full res */
     uint16_t *zoom_buf;                            /* zoomed full-res input for the effect chain */
     volatile uint32_t zoom_q8;                     /* zoom, 256 = 1x */
     volatile uint32_t view_base_w;                 /* camera pixels across the screen at 1x (sensor mode dependent) */
@@ -76,11 +76,11 @@ esp_err_t frame_pipeline_init(void)
     ESP_RETURN_ON_FALSE(s_p.tmp_buf, ESP_ERR_NO_MEM, TAG, "tmp buffer");
     s_p.half_in  = heap_caps_aligned_calloc(s_p.cache_line, 1, HALF_BYTES, MALLOC_CAP_SPIRAM);
     s_p.half_tmp = heap_caps_aligned_calloc(s_p.cache_line, 1, HALF_BYTES, MALLOC_CAP_SPIRAM);
-    s_p.half_out[0] = heap_caps_aligned_calloc(s_p.cache_line, 1, HALF_BYTES, MALLOC_CAP_SPIRAM);
-    s_p.half_out[1] = heap_caps_aligned_calloc(s_p.cache_line, 1, HALF_BYTES, MALLOC_CAP_SPIRAM);
+    s_p.half_out = heap_caps_aligned_calloc(s_p.cache_line, 1, HALF_BYTES, MALLOC_CAP_SPIRAM);
+    s_p.prev_half = heap_caps_aligned_calloc(s_p.cache_line, 1, HALF_BYTES, MALLOC_CAP_SPIRAM);
     s_p.prev_full = heap_caps_aligned_calloc(s_p.cache_line, 1, len, MALLOC_CAP_SPIRAM);
     s_p.zoom_buf = heap_caps_aligned_calloc(s_p.cache_line, 1, len, MALLOC_CAP_SPIRAM);
-    ESP_RETURN_ON_FALSE(s_p.half_in && s_p.half_tmp && s_p.half_out[0] && s_p.half_out[1] && s_p.prev_full && s_p.zoom_buf,
+    ESP_RETURN_ON_FALSE(s_p.half_in && s_p.half_tmp && s_p.half_out && s_p.prev_half && s_p.prev_full && s_p.zoom_buf,
                         ESP_ERR_NO_MEM, TAG, "half/prev/zoom buffers");
 
     fx_chain_clear(&s_p.recipe.chain);
@@ -452,20 +452,25 @@ void frame_pipeline_on_camera_frame(uint8_t *camera_buf, uint8_t cam_idx,
         if (half) {
             if (scaled) scale_view(cam, cam_w, cam_h, &view, s_p.half_in, HALF_W, HALF_H);
             else        downscale_2x(cam_px, cam_w, s_p.half_in);
-            int cur = s_p.half_cur ^ 1;                          /* write the other buffer */
-            fx_frame_t prev = { s_p.half_out[s_p.half_cur], HALF_W, HALF_H, HALF_W };
-            if (temporal && s_p.prev_half_valid) ctx.prev = &prev;
+            /* history of the temporal effect (tracers): read as `prev`, rewritten as `keep` */
+            fx_frame_t hist = { s_p.prev_half, HALF_W, HALF_H, HALF_W };
+            if (temporal) {
+                ctx.keep = &hist;
+                if (s_p.prev_half_valid) ctx.prev = &hist;
+            }
             fx_frame_t in  = { s_p.half_in,  HALF_W, HALF_H, HALF_W };
-            fx_frame_t dst = { s_p.half_out[cur], HALF_W, HALF_H, HALF_W };
+            fx_frame_t dst = { s_p.half_out, HALF_W, HALF_H, HALF_W };
             fx_frame_t tmp = { s_p.half_tmp, HALF_W, HALF_H, HALF_W };
             fx_chain_apply(&recipe.chain, &in, &dst, &tmp, &ctx);
-            s_p.half_cur = cur;
-            s_p.prev_half_valid = true;
+            s_p.prev_half_valid = temporal;
             s_p.prev_full_valid = false;
-            upscale_2x(s_p.half_out[cur], fb);
+            upscale_2x(s_p.half_out, fb);
         } else {
-            fx_frame_t prev = { s_p.prev_full, FP_OUT_W, FP_OUT_H, FP_OUT_W };
-            if (temporal && s_p.prev_full_valid) ctx.prev = &prev;
+            fx_frame_t hist = { s_p.prev_full, FP_OUT_W, FP_OUT_H, FP_OUT_W };
+            if (temporal) {
+                ctx.keep = &hist;
+                if (s_p.prev_full_valid) ctx.prev = &hist;
+            }
             fx_frame_t in  = { (uint16_t *)cam_px, FP_OUT_W, FP_OUT_H, cam_w };
             if (scaled) {
                 scale_view(cam, cam_w, cam_h, &view, s_p.zoom_buf, FP_OUT_W, FP_OUT_H);
@@ -475,13 +480,7 @@ void frame_pipeline_on_camera_frame(uint8_t *camera_buf, uint8_t cam_idx,
             fx_frame_t dst = { fb, FP_OUT_W, FP_OUT_H, FP_OUT_W };
             fx_frame_t tmp = { (uint16_t *)s_p.tmp_buf, FP_OUT_W, FP_OUT_H, FP_OUT_W };
             fx_chain_apply(&recipe.chain, &in, &dst, &tmp, &ctx);
-            if (temporal) {
-                /* keep a clean copy (before the UI is stamped on) for the next frame */
-                copy_window(fb, FP_OUT_W, s_p.prev_full);
-                s_p.prev_full_valid = true;
-            } else {
-                s_p.prev_full_valid = false;
-            }
+            s_p.prev_full_valid = temporal;
             s_p.prev_half_valid = false;
         }
         s_p.last_half = half;

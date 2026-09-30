@@ -54,7 +54,9 @@ typedef struct {
 typedef struct {
     uint32_t seed;
     uint32_t frame_no;
-    const fx_frame_t *prev;   /* previous *output* frame for temporal effects, may be NULL */
+    const fx_frame_t *prev;   /* what the chain's temporal effect produced last frame, may be NULL */
+    fx_frame_t *keep;         /* where the chain stores that effect's output for the next frame (may
+                                 be the same buffer as prev: it is written after the effect ran), or NULL */
     void *scratch;            /* optional work memory, scratch_len bytes, may be NULL */
     size_t scratch_len;
     uint16_t y0, y1;          /* rows to produce: [y0, y1). The chain sets these. */
@@ -103,7 +105,8 @@ void fx_chain_set_amount(fx_chain_t *c, float amount);            /* applies fro
 /*
  * Run the chain. `tmp` must be a frame of the same size as `in`/`out` (used for ping-pong
  * when more than one effect is enabled). With no enabled effect the input is copied to out.
- * `in`, `out` and `tmp` must be distinct buffers.
+ * `in`, `out` and `tmp` must be distinct buffers. For a temporal effect, pass its history in
+ * ctx->prev and ctx->keep.
  */
 void fx_chain_apply(const fx_chain_t *c, const fx_frame_t *in, fx_frame_t *out, fx_frame_t *tmp,
                     const fx_ctx_t *ctx);

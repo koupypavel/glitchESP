@@ -142,13 +142,42 @@ static void run_effect(const fx_desc_t *fx, const fx_frame_t *in, fx_frame_t *ou
     }
 }
 
+static void copy_apply(const fx_frame_t *in, fx_frame_t *out, const float *params, const fx_ctx_t *ctx)
+{
+    (void)params;
+    fx_frame_copy_rows(in, out, ctx->y0, ctx->y1);
+}
+
+/* A plain copy dressed as an effect, so it goes through the same parallel runner. */
+static const fx_desc_t s_copy_fx = { .id = "copy", .name = "copy", .row_parallel = true, .apply = copy_apply };
+
+/*
+ * One stage of a chain. The history (ctx->prev in, ctx->keep out) belongs to the first
+ * temporal effect: it sees what it produced itself on the previous frame, and its output is
+ * stored before any later effect touches it. Feeding it the chain's final output instead
+ * would run every later effect over the trail again on each frame, which compounds (hue,
+ * contrast, displacement) until the picture dissolves.
+ */
+static void run_stage(const fx_slot_t *s, const fx_frame_t *src, fx_frame_t *dst, const fx_ctx_t *ctx, bool *history_used)
+{
+    fx_ctx_t c = *ctx;
+    bool owns_history = s->fx->temporal && !*history_used;
+    if (!owns_history) c.prev = NULL;
+    run_effect(s->fx, src, dst, s->params, &c);
+    if (owns_history) {
+        *history_used = true;
+        if (ctx->keep) run_effect(&s_copy_fx, dst, ctx->keep, NULL, ctx);
+    }
+}
+
 fx_frame_t *fx_chain_apply_pingpong(const fx_chain_t *c, fx_frame_t *a, fx_frame_t *b, const fx_ctx_t *ctx)
 {
     fx_frame_t *src = a, *dst = b;
+    bool history_used = false;
     for (int i = 0; i < c->count; i++) {
         const fx_slot_t *s = &c->slots[i];
         if (!s->enabled || !s->fx) continue;
-        run_effect(s->fx, src, dst, s->params, ctx);
+        run_stage(s, src, dst, ctx, &history_used);
         fx_frame_t *t = src; src = dst; dst = t;
     }
     return src;
@@ -166,20 +195,18 @@ void FX_HOT fx_chain_apply(const fx_chain_t *c, const fx_frame_t *in, fx_frame_t
         return;
     }
 
-    /* Ping-pong: the last enabled effect writes to `out`, the others alternate tmp/out. */
+    /* Ping-pong between `tmp` and `out`, counted back from the end so that the last effect
+     * writes `out` and no effect ever reads the buffer it is writing: with three effects the
+     * order is out, tmp, out; with two it is tmp, out. */
     const fx_frame_t *src = in;
-    int done = 0;
+    int left = enabled;
+    bool history_used = false;
     for (int i = 0; i < c->count; i++) {
         const fx_slot_t *s = &c->slots[i];
         if (!s->enabled || !s->fx) continue;
-        done++;
-        fx_frame_t *dst;
-        if (done == enabled) {
-            dst = out;
-        } else {
-            dst = (src == tmp) ? out : tmp;   /* never write into the buffer we read from */
-        }
-        run_effect(s->fx, src, dst, s->params, ctx);
+        left--;
+        fx_frame_t *dst = (left % 2 == 0) ? out : tmp;
+        run_stage(s, src, dst, ctx, &history_used);
         src = dst;
     }
 }
