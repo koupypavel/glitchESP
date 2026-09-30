@@ -6,6 +6,7 @@
 
 #include <stdbool.h>
 #include "capture.h"
+#include "frame_pipeline.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,6 +21,11 @@ void ui_live_on_capture_done(const capture_result_t *res);
 void ui_live_on_video_started(void);
 void ui_live_on_video_done(const video_result_t *res);
 void ui_live_on_video_error(const char *msg);
+
+/* Call with the LVGL lock held (from LVGL callbacks, or between ui_lvgl_lock/unlock). */
+void ui_live_set_visible(bool visible);                 /* hide the camera controls (gallery) */
+void ui_live_apply_recipe(const fp_recipe_t *recipe);   /* chips, slider and pipeline follow it */
+void ui_live_toast(const char *msg, uint32_t ms);
 
 /* Thread-safe: operate the on-screen controls from another task (serial remote). */
 void ui_live_set_zoom(float zoom);

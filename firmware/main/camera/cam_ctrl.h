@@ -63,6 +63,14 @@ const char *cam_ctrl_mode_name(void);      /* for the recipe sidecar */
 bool cam_ctrl_still_available(void);
 esp_err_t cam_ctrl_take_still(bool dump);
 
+/*
+ * Stop the camera and borrow its frame-buffer block (about 10 MB of cache-line-aligned
+ * PSRAM) for something else: the gallery decodes pictures into it. Fails while a photo or a
+ * recording is in progress. resume() reprograms the sensor and restarts the preview.
+ */
+esp_err_t cam_ctrl_pause(uint8_t **block, size_t *len);
+void cam_ctrl_resume(void);
+
 /* Development aid (serial remote): where the TELE window starts on the sensor. */
 void cam_ctrl_set_tele_origin(uint16_t x0, uint16_t y0);
 

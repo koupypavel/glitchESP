@@ -10,6 +10,7 @@
 #include "settings.h"
 #include "cam_ctrl.h"
 #include "presets.h"
+#include "gallery.h"
 
 static const char *TAG = "ui_live";
 
@@ -26,6 +27,7 @@ static lv_obj_t *s_chip[16];
 static lv_timer_t *s_toast_timer;
 static lv_obj_t *s_settings;   /* modal panel, NULL when closed */
 static lv_obj_t *s_zoom_label;
+static lv_obj_t *s_bar, *s_zoom_btn[2];
 static lv_obj_t *s_presets;    /* modal panel, NULL when closed */
 static lv_obj_t *s_preset_label[PRESET_SLOTS];
 
@@ -260,8 +262,8 @@ static lv_obj_t *zoom_button(lv_obj_t *parent, const char *symbol, int dir, int 
 /* "+" and "-" on the right edge with the current factor between them. */
 static void create_zoom_controls(lv_obj_t *parent)
 {
-    zoom_button(parent, LV_SYMBOL_PLUS, +1, -150);
-    zoom_button(parent, LV_SYMBOL_MINUS, -1, -10);
+    s_zoom_btn[0] = zoom_button(parent, LV_SYMBOL_PLUS, +1, -150);
+    s_zoom_btn[1] = zoom_button(parent, LV_SYMBOL_MINUS, -1, -10);
 
     s_zoom_label = lv_label_create(parent);
     lv_obj_set_style_text_font(s_zoom_label, &lv_font_montserrat_20, 0);
@@ -384,6 +386,8 @@ static void settings_open_cb(lv_event_t *e)
 
 #define TOOL_W 58
 
+static void gallery_open_cb(lv_event_t *e) { (void)e; gallery_open(); }
+
 /* Icon button on the bar's bottom line; `pos` counts from the right edge. */
 static void tool_button(lv_obj_t *bar, const char *symbol, uint32_t color, lv_event_cb_t cb, int pos)
 {
@@ -400,7 +404,7 @@ static void tool_button(lv_obj_t *bar, const char *symbol, uint32_t color, lv_ev
 
 static void create_control_bar(lv_obj_t *parent)
 {
-    lv_obj_t *bar = lv_obj_create(parent);
+    lv_obj_t *bar = s_bar = lv_obj_create(parent);
     lv_obj_set_size(bar, FP_OUT_W, BAR_H);
     lv_obj_align(bar, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_set_style_bg_color(bar, COLOR_KEY_DIM, 0);      /* video darkened underneath */
@@ -443,7 +447,8 @@ static void create_control_bar(lv_obj_t *parent)
      * (the chip rows above are full: a button added there wraps out of sight) */
     tool_button(bar, LV_SYMBOL_SETTINGS, 0x505050, settings_open_cb, 0);
     tool_button(bar, LV_SYMBOL_LIST, 0x2060C0, presets_open_cb, 1);
-    tool_button(bar, LV_SYMBOL_REFRESH, 0x2060C0, reroll_event_cb, 2);
+    tool_button(bar, LV_SYMBOL_IMAGE, 0x2060C0, gallery_open_cb, 2);
+    tool_button(bar, LV_SYMBOL_REFRESH, 0x2060C0, reroll_event_cb, 3);
 
     lv_obj_t *cap = lv_label_create(bar);
     lv_obj_set_style_text_font(cap, &lv_font_montserrat_20, 0);
@@ -452,7 +457,7 @@ static void create_control_bar(lv_obj_t *parent)
     lv_obj_align(cap, LV_ALIGN_BOTTOM_LEFT, 0, -13);
 
     s_slider = lv_slider_create(bar);
-    lv_obj_set_size(s_slider, FP_OUT_W - 24 - 104 - 3 * (TOOL_W + 8) - 20, 24);
+    lv_obj_set_size(s_slider, FP_OUT_W - 24 - 104 - 4 * (TOOL_W + 8) - 20, 24);
     lv_obj_align(s_slider, LV_ALIGN_BOTTOM_LEFT, 104, -13);
     lv_slider_set_range(s_slider, 0, 100);
     lv_slider_set_value(s_slider, 50, LV_ANIM_OFF);
@@ -487,6 +492,7 @@ void ui_live_create(void)
 
     create_control_bar(scr);
     create_zoom_controls(scr);
+    gallery_create_ui(scr);
 
     s_toast = lv_label_create(scr);
     lv_obj_set_style_text_font(s_toast, &lv_font_montserrat_24, 0);
@@ -526,6 +532,30 @@ bool ui_live_toggle_effect(const char *id)
     }
     ui_lvgl_unlock();
     return ok;
+}
+
+void ui_live_set_visible(bool visible)
+{
+    lv_obj_t *objs[] = { s_status, s_bar, s_zoom_btn[0], s_zoom_btn[1], s_zoom_label };
+    for (size_t i = 0; i < sizeof(objs) / sizeof(objs[0]); i++) {
+        if (!objs[i]) continue;
+        if (visible) lv_obj_remove_flag(objs[i], LV_OBJ_FLAG_HIDDEN);
+        else         lv_obj_add_flag(objs[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    if (!visible) {
+        presets_close();
+        settings_close_cb(NULL);
+    }
+}
+
+void ui_live_apply_recipe(const fp_recipe_t *r)
+{
+    apply_recipe(r);
+}
+
+void ui_live_toast(const char *msg, uint32_t ms)
+{
+    toast_show(msg, ms);
 }
 
 bool ui_live_preset(int slot, bool save)

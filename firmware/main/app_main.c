@@ -26,6 +26,7 @@
 #include "settings.h"
 #include "remote.h"
 #include "cam_ctrl.h"
+#include "gallery.h"
 
 #define GLITCH_BENCH 0          /* 1 = run main/bench.c after boot (effect timings, test shot) */
 void bench_start(void);
@@ -48,6 +49,7 @@ static void on_video_done(const video_result_t *res, void *user)
 static void on_video(void *user)
 {
     (void)user;
+    if (gallery_active()) return;
     if (capture_video_active()) {
         capture_video_stop();
         return;
@@ -64,6 +66,10 @@ static void on_video(void *user)
 static void on_shutter(void *user)
 {
     (void)user;
+    if (gallery_active()) {                 /* the shutter leads back to the camera */
+        gallery_close();
+        return;
+    }
     /* At zoom 1 the sensor can be re-read at full resolution for the photo (about a second);
      * otherwise the frame on screen is saved. */
     esp_err_t ret = ESP_ERR_INVALID_STATE;
@@ -109,6 +115,7 @@ void app_main(void)
     ESP_ERROR_CHECK(capture_init(sd_ok, on_capture_done, NULL));
 
     /* UI */
+    ESP_ERROR_CHECK(gallery_init());
     ui_lvgl_lock(0);
     ui_live_create();
     ui_lvgl_unlock();

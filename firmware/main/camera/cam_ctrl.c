@@ -116,6 +116,8 @@ static struct {
     volatile cam_mode_t mode;
     volatile float zoom;            /* what the user asked for */
     TaskHandle_t task;
+    volatile bool busy;             /* the task is switching modes or taking a still */
+    volatile bool paused;           /* stream stopped, the buffer block is lent out (gallery) */
 
     /* high-resolution still in progress */
     volatile bool still_request, still_dump;
@@ -317,13 +319,16 @@ static void cam_task(void *arg)
     (void)arg;
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        if (s_c.paused) continue;                       /* resume() picks the mode for the zoom */
+        s_c.busy = true;
         if (s_c.still_request) {
             take_still(s_c.still_dump);
             s_c.still_request = false;
         }
         cam_mode_t want = mode_for(s_c.zoom);
-        if (want != s_c.mode) switch_mode(want);
+        if (want != s_c.mode && !s_c.paused) switch_mode(want);
         frame_pipeline_set_zoom(s_c.zoom);
+        s_c.busy = false;
     }
 }
 
@@ -365,6 +370,10 @@ float cam_ctrl_set_zoom(float zoom)
 {
     if (zoom < CAM_ZOOM_MIN) zoom = CAM_ZOOM_MIN;
     if (zoom > CAM_ZOOM_MAX) zoom = CAM_ZOOM_MAX;
+    if (s_c.paused) {
+        s_c.zoom = zoom;
+        return zoom;
+    }
     if (mode_for(zoom) != s_c.mode) {
         if (capture_video_active() || capture_busy()) {
             /* the stream cannot restart now: stay inside the current mode's range */
@@ -388,7 +397,7 @@ const char *cam_ctrl_mode_name(void)   { return s_mode[s_c.still_request ? MODE_
 
 bool cam_ctrl_still_available(void)
 {
-    return s_c.task && s_c.mode == CAM_MODE_WIDE && s_c.zoom < CAM_ZOOM_MIN + 0.01f &&
+    return s_c.task && !s_c.paused && s_c.mode == CAM_MODE_WIDE && s_c.zoom < CAM_ZOOM_MIN + 0.01f &&
            !frame_pipeline_chain_is_temporal();
 }
 
@@ -400,6 +409,33 @@ esp_err_t cam_ctrl_take_still(bool dump)
     s_c.still_request = true;
     xTaskNotifyGive(s_c.task);
     return ESP_OK;
+}
+
+esp_err_t cam_ctrl_pause(uint8_t **block, size_t *len)
+{
+    if (!s_c.task || s_c.paused || s_c.busy || s_c.still_request || capture_busy() || capture_video_active()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_c.paused = true;
+    uint8_t wb[6];
+    auto_exposure_read_wb(wb);                          /* remembered for the restart */
+    esp_err_t ret = app_video_stream_stop_wait(2000);
+    if (ret != ESP_OK) {
+        s_c.paused = false;
+        return ret;
+    }
+    *block = s_c.block;
+    *len = s_c.preview_buf_len * (size_t)s_c.preview_bufs;
+    return ESP_OK;
+}
+
+void cam_ctrl_resume(void)
+{
+    if (!s_c.paused) return;
+    apply_mode(mode_for(s_c.zoom), s_c.mode);
+    frame_pipeline_set_zoom(s_c.zoom);
+    app_video_stream_task_start(s_c.fd, 1, NULL);
+    s_c.paused = false;
 }
 
 void cam_ctrl_set_tele_origin(uint16_t x0, uint16_t y0)

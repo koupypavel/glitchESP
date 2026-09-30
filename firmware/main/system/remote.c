@@ -23,6 +23,7 @@
 #include "cam_ctrl.h"
 #include "auto_exposure.h"
 #include "presets.h"
+#include "gallery.h"
 
 static const char *TAG = "remote";
 
@@ -167,6 +168,15 @@ static void handle(char *line)
         } else if (!strcmp(what, "clear")) {
             printf("preset clear %d: %s\n", n, esp_err_to_name(presets_clear(n - 1)));
         }
+    } else if (!strcmp(line, "gallery")) {
+        if (!strcmp(arg, "open"))        gallery_open();
+        else if (!strcmp(arg, "close"))  gallery_close();
+        else if (!strcmp(arg, "next"))   gallery_next();
+        else if (!strcmp(arg, "prev"))   gallery_prev();
+        else if (!strcmp(arg, "play"))   gallery_play();
+        else if (!strcmp(arg, "look"))   gallery_use_look();
+        else if (!strcmp(arg, "delete")) gallery_delete();
+        else printf("usage: gallery open|close|next|prev|play|look|delete\n");
     } else if (!strcmp(line, "settings")) {
         ui_live_show_panel(1, atoi(arg) != 0);
     } else if (!strcmp(line, "recipe")) {
@@ -206,7 +216,7 @@ static void handle(char *line)
         cmd_sdbench();
     } else if (!strcmp(line, "help")) {
         printf("commands: photo | video | dump | stilldump | uidump | zoom [1..6] | fx <id> | amount <0..1> | recipe | "
-               "preset list|save N|load N|clear N|panel 0/1 | settings 0/1 | ae | ls | get <file> | reg <hex> [hex] | tele <x0> <y0> | sdbench\n");
+               "preset list|save N|load N|clear N|panel 0/1 | settings 0/1 | gallery open|close|next|prev|play|look|delete | ae | ls | get <file> | reg <hex> [hex] | tele <x0> <y0> | sdbench\n");
     } else {
         printf("unknown command '%s' (try help)\n", line);
     }

@@ -26,7 +26,7 @@ profile that matches your board (`esptool.py chip_id` prints the revision).
 | `main/pipeline/fx_parallel.*` | Splits row-parallel work across both CPU cores |
 | `main/effects/` | The effect engine and the effects (plain C, also built on the PC by `tools/fxlab`) |
 | `main/display/` | The panel's three frame buffers: acquire, submit, hold for the video encoder |
-| `main/ui/` | LVGL widgets drawn into a separate layer that is stamped onto each frame |
+| `main/ui/` | LVGL widgets drawn into a separate layer that is stamped onto each frame; the gallery |
 | `main/storage/` | Stills (hardware JPEG + `.json` recipe), Motion-JPEG AVI, fast SD writer |
 | `main/input/` | BOOT button (GPIO35): short press = photo, hold 0.7 s = start/stop video |
 | `main/system/` | Settings and presets in NVS, serial remote |
@@ -87,6 +87,16 @@ with their parameters, the amount and the seed); tapping the row recalls it. Pre
 NVS as small blobs that name effects by id, so they survive firmware updates that add or
 reorder effects (`system/presets.c`).
 
+## Gallery
+
+The picture button opens the gallery (`ui/gallery.c`). It stops the camera and borrows its
+10 MB buffer block: the hardware JPEG decoder decodes into it (anything up to 1088x1920),
+the result is scaled to the screen once and then redrawn ten times a second so the buttons
+stay live. Videos are read frame by frame from the AVI and play at their recorded rate.
+The info line shows the recipe from the `.json` sidecar; "Use look" makes that recipe the
+current effect setup and returns to the camera. Delete needs two taps. Closing the gallery
+(or pressing BOOT) reprograms the sensor and restarts the preview.
+
 ## Video
 
 Hold BOOT for 0.7 s to start recording, hold again to stop. Frames are the same 720×1280
@@ -103,6 +113,7 @@ checked from a PC:
 ```
 photo | video | dump | stilldump | uidump | zoom [1..6] | fx <id> | amount <0..1>
 recipe | preset list|save N|load N|clear N|panel 0/1 | settings 0/1 | ae
+gallery open|close|next|prev|play|look|delete
 ls | get <file> | reg <hex> [hex] | tele <x0> <y0> | sdbench | help
 ```
 

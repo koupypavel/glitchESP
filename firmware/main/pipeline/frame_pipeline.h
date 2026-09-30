@@ -96,6 +96,12 @@ typedef enum { FP_QUALITY_AUTO = 0, FP_QUALITY_FULL, FP_QUALITY_HALF } fp_qualit
 void frame_pipeline_set_quality(fp_quality_t q);
 bool frame_pipeline_last_was_half(void);   /* true if the last frame ran the effects at 360x640 */
 
+/* ---- stored pictures (gallery). Only while the camera stream is stopped. ----
+ * An RGB565 image of any size is centre-cropped to the screen's shape and scaled to it:
+ * fit() renders it into a 720x1280 buffer, present() onto the screen with the UI on top. */
+void frame_pipeline_fit(const uint16_t *img, uint32_t stride_px, uint32_t w, uint32_t h, uint16_t *dst);
+void frame_pipeline_present(const uint16_t *img, uint32_t stride_px, uint32_t w, uint32_t h);
+
 /* ---- stats ---- */
 uint32_t frame_pipeline_get_fps(void);      /* camera frames processed per second */
 uint32_t frame_pipeline_get_fx_us(void);    /* effect stage duration of the last frame, microseconds */

@@ -281,10 +281,11 @@ static void IRAM_ATTR scale43_rows(void *arg, int y0, int y1)
  * of three, i.e. 3/4 : 1/4 mixes again. Rows are mixed first (two pixels per word, straight
  * from the camera frame), then the mixed row is squeezed horizontally.
  */
+#define SCALE32_MAX_SRC_W 1088                              /* 2.2 KB of stack */
 static void IRAM_ATTR scale32_rows(void *arg, int y0, int y1)
 {
     const scale43_arg_t *s = arg;
-    uint32_t line[(FP_OUT_W * 3 / 4) / 2];                  /* one mixed source row, up to 540 px */
+    uint32_t line[SCALE32_MAX_SRC_W / 2];                   /* one mixed source row */
     int words = s->src_w / 2, groups = s->src_w / 3;
     for (int y = y0; y < y1; y++) {
         const uint16_t *ra = s->src + (size_t)((y >> 1) * 3 + (y & 1)) * s->src_stride;
@@ -304,7 +305,7 @@ static void IRAM_ATTR scale32_rows(void *arg, int y0, int y1)
 static void scale_view(const uint16_t *cam, uint32_t cam_w, uint32_t cam_h, const view_rect_t *v,
                        uint16_t *dst, int dst_w, int dst_h)
 {
-    if (v->w * 2 == dst_w * 3 && v->h * 2 == dst_h * 3 && v->w % 6 == 0 && !(v->x & 1) && !(cam_w & 1) && dst_w <= FP_OUT_W / 2) {
+    if (v->w * 2 == dst_w * 3 && v->h * 2 == dst_h * 3 && v->w % 6 == 0 && !(v->x & 1) && !(cam_w & 1) && v->w <= SCALE32_MAX_SRC_W) {
         scale43_arg_t a32 = { cam + (size_t)v->y * cam_w + v->x, cam_w, v->w, v->h, dst, dst_w };
         fx_parallel_rows(scale32_rows, &a32, 0, dst_h, dst, (uint32_t)dst_w);
         return;
@@ -549,6 +550,40 @@ void frame_pipeline_on_camera_frame(uint8_t *camera_buf, uint8_t cam_idx,
         s_p.fps_count = 0;
         s_p.fps_t0_us = now;
     }
+}
+
+/* ---- showing stored pictures (gallery); only while the camera stream is stopped ---- */
+
+/* The largest centred rectangle of a w x h image that has the screen's shape. */
+static view_rect_t cover_rect(uint32_t w, uint32_t h)
+{
+    view_rect_t v = { 0, 0, (int)w, (int)h };
+    if ((uint64_t)w * FP_OUT_H > (uint64_t)h * FP_OUT_W) v.w = (int)((uint64_t)h * FP_OUT_W / FP_OUT_H);   /* too wide */
+    else                                                 v.h = (int)((uint64_t)w * FP_OUT_H / FP_OUT_W);   /* too tall */
+    v.w &= ~1;
+    v.h &= ~1;
+    v.x = (((int)w - v.w) / 2) & ~1;
+    v.y = ((int)h - v.h) / 2;
+    return v;
+}
+
+void frame_pipeline_fit(const uint16_t *img, uint32_t stride_px, uint32_t w, uint32_t h, uint16_t *dst)
+{
+    view_rect_t v = cover_rect(w, h);
+    if (v.w == FP_OUT_W && v.h == FP_OUT_H) copy_window(img + (size_t)v.y * stride_px + v.x, stride_px, dst);
+    else                                    scale_view(img, stride_px, h, &v, dst, FP_OUT_W, FP_OUT_H);
+}
+
+void frame_pipeline_present(const uint16_t *img, uint32_t stride_px, uint32_t w, uint32_t h)
+{
+    int fb_idx = display_acquire_fb();
+    uint16_t *fb = display_fb(fb_idx);
+    frame_pipeline_fit(img, stride_px, w, h, fb);
+    fp_recipe_t none = { .amount = 0, .zoom = 1.0f };
+    if (s_p.capture_pending && !s_p.capture_with_ui) snapshot(fb, s_p.seq, &none);
+    ui_lvgl_stamp(fb);
+    if (s_p.capture_pending && s_p.capture_with_ui) snapshot(fb, s_p.seq, &none);   /* screenshot */
+    display_submit_fb(fb_idx);
 }
 
 const fp_frame_t *frame_pipeline_acquire_latest(void)
