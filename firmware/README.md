@@ -121,7 +121,7 @@ checked from a PC:
 
 ```
 photo | video | dump | stilldump | uidump | zoom [1..6] | fx <id> | amount <0..1>
-edit [fx]|close | param <fx> <param> <value>
+bar 0/1 | edit [fx]|close | param <fx> <param> <value>
 recipe | preset list|save N|load N|clear N|panel 0/1 | settings 0/1 | ae
 gallery open|close|next|prev|play|look|delete
 ls | get <file> | reg <hex> [hex] | tele <x0> <y0> | sdbench | help

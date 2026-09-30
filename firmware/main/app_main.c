@@ -90,6 +90,7 @@ void app_main(void)
         ESP_ERROR_CHECK(nvs_flash_erase());
         ESP_ERROR_CHECK(nvs_flash_init());
     }
+    ESP_ERROR_CHECK(settings_init());       /* read early: the UI is built from them */
 
     /* Panel frame buffers (video path) and LVGL (widgets only), see display/ and ui/ui_lvgl.c */
     ESP_ERROR_CHECK(display_init());
@@ -143,7 +144,6 @@ void app_main(void)
      * auto exposure does not adapt in this configuration, so the sensor runs in manual mode
      * under our own AE. Starts in the wide (binned) mode; orientation comes from settings.
      */
-    ESP_ERROR_CHECK(settings_init());
     ESP_ERROR_CHECK(app_video_register_frame_operation_cb(frame_pipeline_on_camera_frame));
     ESP_ERROR_CHECK(cam_ctrl_init(cam_fd, cam_block, cam_buf_len, FP_CAM_BUFS));
     ESP_ERROR_CHECK(cam_ctrl_start());                                /* camera + pipeline on core 1 */

@@ -36,6 +36,7 @@ live, the shutter burns the effect into the saved photo or video, and every shot
 | Input | Action |
 |---|---|
 | Effect chips (bottom bar) | Toggle an effect; up to three run in order |
+| Handle (tab above the bar) | Hide the control bar for a clear view, or bring it back; remembered |
 | Amount slider | Intensity of all active effects |
 | Edit button (pencil) | A slider or switch for every parameter of each active effect, with a reset |
 | Seed button (arrows) | New random seed |

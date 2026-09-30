@@ -15,7 +15,7 @@
 
 static const char *TAG = "ui_live";
 
-#define BAR_H   215     /* bottom control bar height (two rows of chips + slider) */
+#define BAR_H   330     /* bottom control bar: three rows of chips, amount slider, tool buttons */
 
 /* colours that map exactly onto the UI layer keys (see ui_lvgl.h) */
 #define COLOR_KEY_CLEAR   lv_color_hex(0x000008)   /* RGB565 0x0001 */
@@ -29,6 +29,8 @@ static lv_timer_t *s_toast_timer;
 static lv_obj_t *s_settings;   /* modal panel, NULL when closed */
 static lv_obj_t *s_zoom_label;
 static lv_obj_t *s_bar, *s_zoom_btn[2];
+static lv_obj_t *s_handle, *s_handle_label;    /* tab that hides / shows the bar */
+static bool s_bar_hidden;
 static lv_obj_t *s_presets;    /* modal panel, NULL when closed */
 static lv_obj_t *s_preset_label[PRESET_SLOTS];
 
@@ -428,7 +430,20 @@ static void settings_open_cb(lv_event_t *e)
     lv_obj_add_event_cb(close, settings_close_cb, LV_EVENT_CLICKED, NULL);
 }
 
-#define TOOL_W 52
+/* Control bar geometry: three rows of four effect chips, the amount slider, five tools. */
+#define BAR_PAD     12
+#define CHIP_COLS   4
+#define CHIP_GAP    8
+#define CHIP_W      ((FP_OUT_W - 2 * BAR_PAD - (CHIP_COLS - 1) * CHIP_GAP) / CHIP_COLS)
+#define CHIP_H      56
+#define CHIP_ROWS_H (3 * CHIP_H + 2 * CHIP_GAP)
+#define AMOUNT_H    44
+#define TOOL_N      5
+#define TOOL_GAP    10
+#define TOOL_W      ((FP_OUT_W - 2 * BAR_PAD - (TOOL_N - 1) * TOOL_GAP) / TOOL_N)
+#define TOOL_H      60
+#define HANDLE_W    120
+#define HANDLE_H    44
 
 static void gallery_open_cb(lv_event_t *e) { (void)e; gallery_open(); }
 
@@ -436,14 +451,39 @@ static void gallery_open_cb(lv_event_t *e) { (void)e; gallery_open(); }
 static void tool_button(lv_obj_t *bar, const char *symbol, uint32_t color, lv_event_cb_t cb, int pos)
 {
     lv_obj_t *b = lv_button_create(bar);
-    lv_obj_set_size(b, TOOL_W, 50);
+    lv_obj_set_size(b, TOOL_W, TOOL_H);
     lv_obj_set_style_bg_color(b, lv_color_hex(color), 0);
-    lv_obj_align(b, LV_ALIGN_BOTTOM_RIGHT, -pos * (TOOL_W + 8), 0);
+    lv_obj_align(b, LV_ALIGN_BOTTOM_RIGHT, -pos * (TOOL_W + TOOL_GAP), 0);
     lv_obj_t *l = lv_label_create(b);
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(l, &lv_font_montserrat_24, 0);
     lv_label_set_text(l, symbol);
     lv_obj_center(l);
     lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, NULL);
+}
+
+/* Hide or show the control bar. The handle stays: a tab on top of the bar, or at the
+ * bottom edge of the screen when the bar is away. */
+static void set_bar_hidden(bool hidden, bool remember)
+{
+    s_bar_hidden = hidden;
+    if (hidden) lv_obj_add_flag(s_bar, LV_OBJ_FLAG_HIDDEN);
+    else        lv_obj_remove_flag(s_bar, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_align(s_handle, LV_ALIGN_BOTTOM_MID, 0, hidden ? 0 : -BAR_H);
+    lv_label_set_text(s_handle_label, hidden ? LV_SYMBOL_UP : LV_SYMBOL_DOWN);
+    if (hidden) ui_editor_close();
+    if (remember) {
+        settings_t cfg = *settings_get();
+        if (cfg.bar_hidden != hidden) {
+            cfg.bar_hidden = hidden;
+            settings_set(&cfg);
+        }
+    }
+}
+
+static void handle_cb(lv_event_t *e)
+{
+    (void)e;
+    set_bar_hidden(!s_bar_hidden, true);
 }
 
 static void create_control_bar(lv_obj_t *parent)
@@ -455,11 +495,12 @@ static void create_control_bar(lv_obj_t *parent)
     lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(bar, 0, 0);
     lv_obj_set_style_radius(bar, 0, 0);
-    lv_obj_set_style_pad_all(bar, 12, 0);
+    lv_obj_set_style_pad_all(bar, BAR_PAD, 0);
     lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
 
+    /* effect chips: a fixed grid, so every chip is the same comfortable size */
     lv_obj_t *row = lv_obj_create(bar);
-    lv_obj_set_size(row, LV_PCT(100), 112);
+    lv_obj_set_size(row, LV_PCT(100), CHIP_ROWS_H);
     lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_set_style_bg_color(row, COLOR_KEY_DIM, 0);
     lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
@@ -467,48 +508,59 @@ static void create_control_bar(lv_obj_t *parent)
     lv_obj_set_style_pad_all(row, 0, 0);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW_WRAP);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
-    lv_obj_set_style_pad_column(row, 8, 0);
-    lv_obj_set_style_pad_row(row, 6, 0);
+    lv_obj_set_style_pad_column(row, CHIP_GAP, 0);
+    lv_obj_set_style_pad_row(row, CHIP_GAP, 0);
     lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
-    for (int i = 0; i < fx_registry_count() && i < 16; i++) {
+    for (int i = 0; i < fx_registry_count() && i < 3 * CHIP_COLS; i++) {
         const fx_desc_t *fx = fx_registry_get(i);
         lv_obj_t *b = lv_button_create(row);
         lv_obj_add_flag(b, LV_OBJ_FLAG_CHECKABLE);
-        lv_obj_set_height(b, 50);
+        lv_obj_set_size(b, CHIP_W, CHIP_H);
         lv_obj_set_style_bg_color(b, lv_color_hex(0x303030), 0);
         lv_obj_set_style_bg_color(b, lv_color_hex(0xE0007A), LV_STATE_CHECKED);
-        lv_obj_set_style_pad_hor(b, 10, 0);
+        lv_obj_set_style_pad_hor(b, 2, 0);
         lv_obj_t *l = lv_label_create(b);
-        lv_obj_set_style_text_font(l, &lv_font_montserrat_16, 0);
+        lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
         lv_label_set_text(l, fx->name);
         lv_obj_center(l);
         lv_obj_add_event_cb(b, chip_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
         s_chip[i] = b;
     }
 
-    /* bottom line: amount slider on the left, the three tool buttons on the right
-     * (the chip rows above are full: a button added there wraps out of sight) */
+    /* the amount knob on its own line */
+    lv_obj_t *cap = lv_label_create(bar);
+    lv_obj_set_style_text_font(cap, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(cap, lv_color_white(), 0);
+    lv_label_set_text(cap, "amount");
+    lv_obj_align(cap, LV_ALIGN_TOP_LEFT, 0, CHIP_ROWS_H + 10 + (AMOUNT_H - 24) / 2);
+
+    s_slider = lv_slider_create(bar);
+    lv_obj_set_size(s_slider, FP_OUT_W - 2 * BAR_PAD - 104 - 16, 24);
+    lv_obj_align(s_slider, LV_ALIGN_TOP_LEFT, 104, CHIP_ROWS_H + 10 + (AMOUNT_H - 24) / 2);
+    lv_slider_set_range(s_slider, 0, 100);
+    lv_slider_set_value(s_slider, 50, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(s_slider, lv_color_hex(0xE0007A), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(s_slider, lv_color_hex(0xE0007A), LV_PART_KNOB);
+    lv_obj_add_event_cb(s_slider, slider_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    /* tools along the bottom */
     tool_button(bar, LV_SYMBOL_SETTINGS, 0x505050, settings_open_cb, 0);
     tool_button(bar, LV_SYMBOL_LIST, 0x2060C0, presets_open_cb, 1);
     tool_button(bar, LV_SYMBOL_IMAGE, 0x2060C0, gallery_open_cb, 2);
     tool_button(bar, LV_SYMBOL_REFRESH, 0x2060C0, reroll_event_cb, 3);
     tool_button(bar, LV_SYMBOL_EDIT, 0xE0007A, editor_open_cb, 4);
 
-    lv_obj_t *cap = lv_label_create(bar);
-    lv_obj_set_style_text_font(cap, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(cap, lv_color_white(), 0);
-    lv_label_set_text(cap, "amount");
-    lv_obj_align(cap, LV_ALIGN_BOTTOM_LEFT, 0, -13);
-
-    s_slider = lv_slider_create(bar);
-    lv_obj_set_size(s_slider, FP_OUT_W - 24 - 104 - 5 * (TOOL_W + 8) - 20, 24);
-    lv_obj_align(s_slider, LV_ALIGN_BOTTOM_LEFT, 104, -13);
-    lv_slider_set_range(s_slider, 0, 100);
-    lv_slider_set_value(s_slider, 50, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(s_slider, lv_color_hex(0xE0007A), LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(s_slider, lv_color_hex(0xE0007A), LV_PART_KNOB);
-    lv_obj_add_event_cb(s_slider, slider_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    /* the handle that hides and shows the bar */
+    s_handle = lv_button_create(parent);
+    lv_obj_set_size(s_handle, HANDLE_W, HANDLE_H);
+    lv_obj_set_style_bg_color(s_handle, lv_color_hex(0x303030), 0);
+    lv_obj_set_style_radius(s_handle, 10, 0);
+    s_handle_label = lv_label_create(s_handle);
+    lv_obj_set_style_text_font(s_handle_label, &lv_font_montserrat_20, 0);
+    lv_obj_center(s_handle_label);
+    lv_obj_add_event_cb(s_handle, handle_cb, LV_EVENT_CLICKED, NULL);
+    set_bar_hidden(settings_get()->bar_hidden, false);
 }
 
 static void status_timer_cb(lv_timer_t *t)
@@ -546,7 +598,7 @@ void ui_live_create(void)
     lv_obj_set_style_bg_opa(s_toast, LV_OPA_COVER, 0);
     lv_obj_set_style_pad_all(s_toast, 14, 0);
     lv_obj_set_style_radius(s_toast, 10, 0);
-    lv_obj_align(s_toast, LV_ALIGN_BOTTOM_MID, 0, -(BAR_H + 30));
+    lv_obj_align(s_toast, LV_ALIGN_BOTTOM_MID, 0, -(BAR_H + 70));
     lv_obj_add_flag(s_toast, LV_OBJ_FLAG_HIDDEN);
 
     lv_timer_create(status_timer_cb, 1000, NULL);
@@ -581,12 +633,13 @@ bool ui_live_toggle_effect(const char *id)
 
 void ui_live_set_visible(bool visible)
 {
-    lv_obj_t *objs[] = { s_status, s_bar, s_zoom_btn[0], s_zoom_btn[1], s_zoom_label };
+    lv_obj_t *objs[] = { s_status, s_bar, s_handle, s_zoom_btn[0], s_zoom_btn[1], s_zoom_label };
     for (size_t i = 0; i < sizeof(objs) / sizeof(objs[0]); i++) {
         if (!objs[i]) continue;
         if (visible) lv_obj_remove_flag(objs[i], LV_OBJ_FLAG_HIDDEN);
         else         lv_obj_add_flag(objs[i], LV_OBJ_FLAG_HIDDEN);
     }
+    if (visible) set_bar_hidden(s_bar_hidden, false);      /* the bar itself follows its own switch */
     if (!visible) {
         presets_close();
         settings_close_cb(NULL);
@@ -623,6 +676,13 @@ bool ui_live_set_param(const char *fx_id, const char *param_id, float value)
     ui_editor_sync();
     ui_lvgl_unlock();
     return ok;
+}
+
+void ui_live_set_bar_hidden(bool hidden)
+{
+    if (!ui_lvgl_lock(200)) return;
+    set_bar_hidden(hidden, true);
+    ui_lvgl_unlock();
 }
 
 bool ui_live_preset(int slot, bool save)
