@@ -12,3 +12,4 @@
 *.pdf binary
 *.ppm binary
 *.bin binary
+*.stl binary

@@ -108,6 +108,15 @@ run this inside the unpacked folder:
 python -m esptool --chip esp32p4 -p COM10 -b 460800 write_flash @flash_args
 ```
 
+## Enclosure
+
+[`hardware/enclosure`](hardware/enclosure) has a printable case with a battery bay, a
+speaker pocket, openings for every port and button, a shutter button, a rotary encoder
+and an adjustable lens hood, as STL files and as the CadQuery script that generates them.
+It has not been printed yet.
+
+![enclosure](hardware/enclosure/img/back.png)
+
 ## Build and flash
 
 You need ESP-IDF **v5.5.5**. On Windows, from `firmware/`:
@@ -154,6 +163,7 @@ what was learned about performance on the ESP32-P4.
 | `docs/EFFECTS.md` | Effect engine guide and measured performance model |
 | `CHANGELOG.md` | What each release contains |
 | `.github/workflows/` | Build of the firmware and the harness on every push; releases on a version tag |
+| `hardware/enclosure/` | Printable case: STL files, the CadQuery model that makes them, assembly notes |
 | `PLAN.md` | Original plan, hardware facts and research notes |
 | `m0/` | Hardware bring-up notes and the two stock examples used for it |
 | `doc/` | Board schematic and pointers to vendor documentation |
@@ -207,7 +217,8 @@ Connectivity:
 Project:
 
 - [ ] Photos and a video from the device in this README (the samples above are PC renders)
-- [ ] Enclosure: case, button holes, battery bay
+- [ ] Print and fit the enclosure in [`hardware/enclosure`](hardware/enclosure) (designed and
+      checked against the board's 3D model, not printed yet); tripod thread, lanyard eye
 
 ## License
 

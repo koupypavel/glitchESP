@@ -21,6 +21,10 @@ doc/esp32-p4_datasheet_en.pdf
 tools/fxlab/out/
 tools/fxlab/samples/*.ppm
 
+# enclosure: the Python environment with CadQuery
+hardware/enclosure/.venv/
+__pycache__/
+
 # editors / OS
 .vscode/
 .idea/
