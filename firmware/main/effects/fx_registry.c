@@ -22,6 +22,7 @@ extern const fx_desc_t fx_breathe;
 extern const fx_desc_t fx_vhs;
 extern const fx_desc_t fx_slitscan;
 extern const fx_desc_t fx_databend;
+extern const fx_desc_t fx_squint;
 
 static const fx_desc_t *const s_registry[] = {
     &fx_chanshift,
@@ -39,14 +40,17 @@ static const fx_desc_t *const s_registry[] = {
     &fx_vhs,
     &fx_slitscan,
     &fx_databend,
+    &fx_squint,
 };
 
 static fx_parallel_fn s_parallel;
+static fx_rows_runner_fn s_rows_runner;
 
 void *fx_big_alloc(size_t bytes)
 {
+    bytes = (bytes + 127) & ~(size_t)127;
 #if defined(ESP_PLATFORM)
-    return heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM);
+    return heap_caps_aligned_alloc(128, bytes, MALLOC_CAP_SPIRAM);
 #else
     return malloc(bytes);
 #endif
@@ -106,6 +110,18 @@ void fx_set_parallel_runner(fx_parallel_fn fn)
     s_parallel = fn;
 }
 
+void fx_set_rows_runner(fx_rows_runner_fn fn)
+{
+    s_rows_runner = fn;
+}
+
+void fx_rows_parallel(fx_rows_fn fn, void *arg, int y0, int y1, const fx_frame_t *reads, void *writes,
+                      size_t write_row_bytes)
+{
+    if (s_rows_runner) s_rows_runner(fn, arg, y0, y1, reads, writes, write_row_bytes);
+    else fn(arg, y0, y1);
+}
+
 /* ---- chain ---- */
 
 void fx_chain_clear(fx_chain_t *c)
@@ -141,6 +157,7 @@ static void run_effect(const fx_desc_t *fx, const fx_frame_t *in, fx_frame_t *ou
     ctx.y0 = 0;
     ctx.y1 = in->h;
     if (fx->prepare) fx->prepare(params, &ctx);
+    if (fx->analyze) fx->analyze(in, params, &ctx);
     if (fx->row_parallel && s_parallel) {
         s_parallel(fx, in, out, params, &ctx);
     } else {

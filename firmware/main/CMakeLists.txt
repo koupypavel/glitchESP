@@ -36,7 +36,8 @@ set(srcs
     "effects/fx_drift.c"
     "effects/fx_vhs.c"
     "effects/fx_slitscan.c"
-    "effects/fx_databend.c")
+    "effects/fx_databend.c"
+    "effects/fx_squint.c")
 
 idf_component_register(SRCS "${srcs}"
                        INCLUDE_DIRS "." "camera" "pipeline" "storage" "ui" "input" "effects" "display" "system")

@@ -173,7 +173,8 @@ static void handle(char *line)
     } else if (!strcmp(line, "bar")) {
         ui_live_set_bar_hidden(atoi(arg) == 0);         /* bar 1 = show, bar 0 = hide */
     } else if (!strcmp(line, "set")) {
-        /* set burst <1|3|5|10> | set h264 <0|1> | set hires <0|1>: settings, stored like from the panel */
+        /* set burst <1|3|5|10> | set h264 <0|1> | set hires <0|1> | set quality <0 auto|1 full|2 half>:
+         * settings, stored like from the panel */
         char key[12] = "";
         int v = 0;
         settings_t cfg = *settings_get();
@@ -181,9 +182,10 @@ static void handle(char *line)
             if (!strcmp(key, "burst"))      cfg.burst = (uint8_t)(v < 1 ? 1 : (v > 10 ? 10 : v));
             else if (!strcmp(key, "h264"))  cfg.video_h264 = v != 0;
             else if (!strcmp(key, "hires")) cfg.photo_hires = v != 0;
+            else if (!strcmp(key, "quality")) cfg.quality = (uint8_t)(v < 0 ? 0 : (v > 2 ? 2 : v));
             settings_set(&cfg);
         }
-        printf("settings: burst %u, h264 %d, hires %d\n", cfg.burst, cfg.video_h264, cfg.photo_hires);
+        printf("settings: burst %u, h264 %d, hires %d, quality %u\n", cfg.burst, cfg.video_h264, cfg.photo_hires, cfg.quality);
     } else if (!strcmp(line, "edit")) {
         /* edit [fx id] | edit close: the parameter editor */
         bool open = strcmp(arg, "close") != 0;
@@ -256,7 +258,7 @@ static void handle(char *line)
         cmd_sdbench();
     } else if (!strcmp(line, "help")) {
         printf("commands: photo | video | dump | stilldump | uidump | zoom [1..6] | fx <id> | amount <0..1> | bar 0/1 | edit [fx]|close | param <fx> <id> <value> | knob <steps>|click|reroll | idle [poke] | recipe | "
-               "preset list|save N|load N|clear N|panel 0/1 | settings 0/1 | set burst|h264|hires <n> | gallery open|close|next|prev|play|look|delete | ae | eject | ls | get <file> | reg <hex> [hex] | tele <x0> <y0> | sdbench\n");
+               "preset list|save N|load N|clear N|panel 0/1 | settings 0/1 | set burst|h264|hires|quality <n> | gallery open|close|next|prev|play|look|delete | ae | eject | ls | get <file> | reg <hex> [hex] | tele <x0> <y0> | sdbench\n");
     } else {
         printf("unknown command '%s' (try help)\n", line);
     }

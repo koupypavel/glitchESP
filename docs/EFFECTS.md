@@ -190,6 +190,24 @@ stuck block across the row. This is an imitation, not real file corruption: it i
 repeatable from the seed and works at any frame size, which a real encode, corrupt and
 decode round trip would not be.
 
+### Painter's set
+
+**Squint** (`fx_squint.c`). What a painter does to judge a scene: half-close the eyes so the
+detail goes and only the big shapes of light and shadow remain. The frame is averaged into
+a grid of cells (half the blur size), the grid is softened with its neighbours, and every
+output pixel is interpolated from the four nearest cells, which together is close to a
+Gaussian blur for the price of one pass. Each cell carries its brightness next to its
+colour; the interpolated brightness is snapped to one of `values` steps (with a soft ramp
+between them) and the colour shifted by the same amount, so the shapes keep a hint of
+colour and `color` 0 gives a pure value study. The steps are spread between the 3rd and
+97th percentile of the picture, so a dim room and a bright street both split into the same
+number of shapes. This is the first effect that needs the whole frame before it can draw
+any row: it uses the `analyze()` hook (once per frame, with the input) and runs the averaging
+on both cores with `fx_rows_parallel()`. The grid lives in PSRAM, which the two cores do not
+see coherently, hence `fx_mem_publish()` / `fx_mem_fetch()` around it. Everything per pixel
+happens once per 2x2 block; the blur hides that. It also declares `FX_COST_SOFT`, so the
+preview always runs it at half resolution: full resolution adds nothing to a blur.
+
 Not yet built: visual haze/glow (blend with a blurred low-resolution copy), environmental
 orbism (radial block displacement), melting (feedback warp that accumulates).
 
@@ -200,7 +218,9 @@ orbism (radial block displacement), melting (feedback warp that accumulates).
    numbers when the range is 20 or more), `step` 1 with a 0..1 range gives an on/off switch,
    `step` 1 otherwise a slider in whole steps. Keep the labels short.
    Honour `ctx->y0`/`ctx->y1` and seed randomness per band/row with `fx_rng_init_at()`; then
-   set `row_parallel = true` so both cores share the work. Per-frame tables go in `prepare()`.
+   set `row_parallel = true` so both cores share the work. Per-frame tables go in `prepare()`;
+   anything that must look at the whole input first goes in `analyze()` (see `fx_squint.c`,
+   also for spreading such work over both cores and for sharing PSRAM data between them).
    Parameters measured in pixels (shifts, band heights, tile sizes, wavelengths) are defined
    for a 720-pixel-wide frame: pass them through `fx_px(in, value, min)` or multiply by
    `fx_scale(in)`. The same chain runs on 360-wide preview frames, 720-wide full frames and

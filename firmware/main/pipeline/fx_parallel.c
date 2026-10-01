@@ -117,6 +117,15 @@ void fx_parallel_rows(fx_row_fn fn, void *arg, int y0, int y1, uint16_t *out, ui
     rows_invalidate(&o, y0, mid);
 }
 
+/* Engine hook for row jobs started by an effect's analyze(): the input frame may still sit
+ * in this core's cache (the scaler wrote it), so write it back before the worker reads it. */
+static void rows_runner(fx_rows_fn fn, void *arg, int y0, int y1, const fx_frame_t *reads, void *writes,
+                        size_t write_row_bytes)
+{
+    if (reads) rows_writeback(reads, 0, reads->h);
+    fx_parallel_rows(fn, arg, y0, y1, (uint16_t *)writes, (uint32_t)(write_row_bytes / 2));
+}
+
 esp_err_t fx_parallel_init(void)
 {
     s_w.start = xSemaphoreCreateBinary();
@@ -125,6 +134,7 @@ esp_err_t fx_parallel_init(void)
     BaseType_t ok = xTaskCreatePinnedToCore(worker_task, "fx_worker", 16 * 1024, NULL, 12, &s_w.worker, 0);
     ESP_RETURN_ON_FALSE(ok == pdPASS, ESP_FAIL, TAG, "worker task");
     fx_set_parallel_runner(run_split);
+    fx_set_rows_runner(rows_runner);
     ESP_LOGI(TAG, "row-parallel effects: worker on core 0");
     return ESP_OK;
 }

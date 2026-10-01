@@ -25,6 +25,7 @@ extern "C" {
 #define FX_COST_LIGHT   1     /* ~1 memcpy pass (scanline, wave) */
 #define FX_COST_MEDIUM  2     /* 1-2 per-pixel passes (blocks) */
 #define FX_COST_HEAVY   3     /* multi-tap per-pixel or sorting (chanshift, bitcrush, pixelsort) */
+#define FX_COST_SOFT    5     /* a blur: full resolution adds nothing, so always preview at half (squint) */
 
 /*
  * On the ESP32-P4 this firmware executes code from PSRAM (XIP). Effect inner loops must live
@@ -33,9 +34,25 @@ extern "C" {
  */
 #if defined(ESP_PLATFORM)
 #include "esp_attr.h"
+#include "esp_cache.h"
 #define FX_HOT IRAM_ATTR
 #else
 #define FX_HOT
+#endif
+
+/*
+ * The two cores do not see each other's cached writes to PSRAM. Per-frame state that one
+ * core builds (analyze, prepare) and both cores read (apply) is safe in on-chip RAM (static
+ * tables); if it lives in a fx_big_alloc() block, the writer calls fx_mem_publish() when it
+ * is done and every apply() calls fx_mem_fetch() before reading it. Both take the block's
+ * start and a length rounded up to 128 bytes. Nothing to do on the PC.
+ */
+#if defined(ESP_PLATFORM)
+static inline void fx_mem_publish(const void *p, size_t n) { esp_cache_msync((void *)p, n, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED); }
+static inline void fx_mem_fetch(void *p, size_t n) { esp_cache_msync(p, n, ESP_CACHE_MSYNC_FLAG_DIR_M2C); }
+#else
+static inline void fx_mem_publish(const void *p, size_t n) { (void)p; (void)n; }
+static inline void fx_mem_fetch(void *p, size_t n) { (void)p; (void)n; }
 #endif
 
 typedef struct {
@@ -76,6 +93,9 @@ typedef struct fx_desc {
     void (*from_amount)(float amount, float *params);
     /* Optional: called once per frame before apply() (lookup tables etc.). */
     void (*prepare)(const float *params, const fx_ctx_t *ctx);
+    /* Optional: called once per frame before apply(), on one core, with the whole input frame
+     * (measurements that every row needs: a histogram, a coarse copy of the picture). */
+    void (*analyze)(const fx_frame_t *in, const float *params, const fx_ctx_t *ctx);
     /* Render rows [ctx->y0, ctx->y1) of `out` from `in`. Both frames have equal w/h. */
     void (*apply)(const fx_frame_t *in, fx_frame_t *out, const float *params, const fx_ctx_t *ctx);
 } fx_desc_t;
@@ -127,6 +147,21 @@ typedef void (*fx_parallel_fn)(const fx_desc_t *fx, const fx_frame_t *in, fx_fra
                                const float *params, const fx_ctx_t *ctx);
 void fx_set_parallel_runner(fx_parallel_fn fn);
 
+/*
+ * Row jobs outside apply(): work an effect's analyze() wants spread over both cores, such as
+ * reading the whole frame. fx_rows_parallel() runs fn(arg, y0, y1) over [y0, y1), split across
+ * the cores when the host installed a runner, inline otherwise. `reads` is the frame the
+ * rows read (made visible to the other core first); `writes` is what row r writes, at
+ * writes + r * write_row_bytes (made visible back when the job is done; write_row_bytes must
+ * be a multiple of 128). fn must not touch anything else another core wrote this frame.
+ */
+typedef void (*fx_rows_fn)(void *arg, int y0, int y1);
+typedef void (*fx_rows_runner_fn)(fx_rows_fn fn, void *arg, int y0, int y1, const fx_frame_t *reads,
+                                  void *writes, size_t write_row_bytes);
+void fx_set_rows_runner(fx_rows_runner_fn fn);
+void fx_rows_parallel(fx_rows_fn fn, void *arg, int y0, int y1, const fx_frame_t *reads, void *writes,
+                      size_t write_row_bytes);
+
 /* ---- helpers shared by effects ---- */
 static inline uint16_t fx_rgb565(unsigned r5, unsigned g6, unsigned b5)
 {
@@ -159,7 +194,9 @@ static inline int fx_px(const fx_frame_t *f, float v, int min)
 }
 
 /* Large working tables (>16 KB) must not live in on-chip RAM: allocate them through this
- * (PSRAM on the device, malloc on the PC). Returns NULL on failure. Never freed. */
+ * (PSRAM on the device, malloc on the PC). The block starts on a 128-byte boundary and its
+ * length is rounded up to a multiple of 128 (see fx_mem_fetch). Returns NULL on failure.
+ * Never freed. */
 void *fx_big_alloc(size_t bytes);
 
 void fx_frame_copy(const fx_frame_t *in, fx_frame_t *out);
