@@ -88,13 +88,15 @@ def view(name, items, direction, up=(0, 1, 0), size=(1000, 1100), zoom=1.0, clip
 
 
 def main():
-    parts = {"body": enc.make_body(), "plate": enc.make_plate(), "hood": enc.make_hood(), "plunger": enc.make_plunger()}
+    parts = {"body": enc.make_body(), "plate": enc.make_plate(), "hood": enc.make_hood(), "plunger": enc.make_plunger(),
+             "cap": enc.make_cap()}
     board, fitted = enc.board_proxies(), enc.fitted_proxies()
     grey, orange, pink = (0.45, 0.48, 0.53), (0.95, 0.6, 0.15), (0.9, 0.15, 0.5)
     glass, green, blue = (0.08, 0.1, 0.14), (0.1, 0.5, 0.28), (0.25, 0.5, 0.9)
 
     plunger2 = parts["plunger"].translate((0, enc.KEY_POWER_Y - enc.KEY_BOOT_Y, 0))
-    case = [(parts["body"], grey, 1), (parts["hood"], pink, 1), (parts["plunger"], pink, 1), (plunger2, pink, 1)]
+    case = [(parts["body"], grey, 1), (parts["hood"], pink, 1), (parts["plunger"], pink, 1), (plunger2, pink, 1),
+            (parts["cap"], pink, 1)]
     unit = [(board["glass"], glass, 1)]
 
     view("front", case + unit, (0.35, 0.3, -0.9), zoom=1.25)
@@ -108,7 +110,8 @@ def main():
     look = (0.12, 0.18, -0.98)
     view("inside_empty", [(parts["body"], grey, 1)], look, zoom=1.3)
     inside = [(parts["body"], grey, 1), (fitted["battery"], blue, 1), (fitted["speaker"], blue, 1),
-              (fitted["shutter"], blue, 1), (fitted["encoder"], blue, 1), (parts["hood"], pink, 1)]
+              (fitted["shutter"], blue, 1), (fitted["encoder"], blue, 1), (parts["hood"], pink, 1),
+              (parts["cap"], pink, 1), (fitted["tripod_nut"], blue, 1)]
     view("inside_fitted", inside, look, zoom=1.3)
     view("inside_plate", inside + [(parts["plate"], orange, 1)], look, zoom=1.3)
     back_parts = [(board[k], green, 1) for k in ("pcb", "header", "usb_a", "usb_b", "sd", "keys", "c6", "core", "rtc",

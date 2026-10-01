@@ -26,8 +26,12 @@ import cadquery as cq
 
 BATTERY = (56.75, 88.0, 9.0)        # bay width (x), length (y), cell thickness (z)
 SPEAKER = (26.0, 26.0, 5.0)         # along the top edge (x), depth into the case (z), thickness (y)
-SHUTTER_HOLE_D = 12.2               # 12 mm panel push-button
-SHUTTER_NUT_D = 16.8                # room for its nut (across corners)
+TACT_W = 12.0                       # shutter: a 12 x 12 mm tactile switch (TC-1212T) ...
+TACT_H = 7.3                        # ... 7.3 mm from its base to the top of the actuator
+TACT_BODY = 3.6                     # height of its square body without the actuator
+CAP_D = 9.0                         # printed cap through the wall that presses the switch
+TRIPOD_NUT = (11.11, 5.56)          # 1/4"-20 hex nut: across flats, thickness
+TRIPOD_Z = -19.0                    # tripod axis, depth (the case's front is at +3.5, back at -26.3)
 ENCODER_HOLE_D = 7.2                # EC11: M7 bush
 ENCODER_BODY = 12.6                 # EC11 body is 12 x 12 mm
 LENS_Y = 48.0                       # lens centre above the board centre line (estimate from Waveshare's photo)
@@ -84,10 +88,13 @@ BAY_X0 = IN_X - BATTERY[0]                          # battery bay: against the r
 BAY_Y0, BAY_Y1 = -54.9, -54.9 + BATTERY[1]
 RIB = 1.2
 
-# shutter button in the right wall: between the POWER button and the top-right standoff,
-# low enough that its nut clears the board's parts
-SHUTTER_Y, SHUTTER_Z = 43.2, BACK_IN + SHUTTER_NUT_D / 2 + 0.05
-SHUTTER_DEPTH = 19.0                # how far the button reaches into the case behind the wall
+# shutter in the left wall, near the top, below the 40-pin header and the top-left standoff.
+# Distances into the case from the inner face of the left wall ("w"):
+CAP_FLANGE_T, CAP_NUB_L = 1.2, 1.0  # cap flange behind the wall, nub that presses the actuator
+TACT_TOP_W = CAP_FLANGE_T + CAP_NUB_L               # top of the switch's actuator
+TACT_BASE_W = TACT_TOP_W + TACT_H                   # its base, against the back stop
+SHUTTER_Y = 41.5
+SHUTTER_Z = BACK_IN + TACT_W / 2                    # the switch stands on the back wall
 ENCODER_Y, ENCODER_Z = -22.0, BACK_IN + ENCODER_BODY / 2 + 0.5
 SPK_X0 = -IN_X + 1.55                               # speaker pocket in the forehead, left
 SPK_X1 = SPK_X0 + SPEAKER[0] + 1.2
@@ -104,7 +111,7 @@ HOOD_FRONT_Z = HOOD_SHOULDER_Z + 3.5                # how far the socket reaches
 HOOD_OUT_Z = BACK_OUT - HOOD_T
 HOOD_SCREWS = [(-12.5, 9.0), (-12.5, -9.0), (12.5, -9.0)]      # relative to the lens centre
 
-PLATE_BOSSES = [(0.0, -59.6), (-19.0, BAY_Y1 + RIB + 3.3)]     # the second one left of the lens, clear of the shutter
+PLATE_BOSSES = [(-13.0, -59.6), (28.0, BAY_Y1 + RIB + 3.0)]    # clear of the tripod mount and the shutter
 POST_D, BOSS_D = 8.0, 5.5
 
 
@@ -181,6 +188,19 @@ def make_body():
     for dx, dy in HOOD_SCREWS:                                   # the hood is screwed to these
         body = body.union(cyl_z(dx, LENS_Y + dy, BACK_IN - 0.1, BACK_IN + 2.0, BOSS_D))
 
+    # shutter holder: two cheeks hold the switch, a bar behind it takes the press (the bar
+    # sits between the switch's legs). The switch drops in from the front.
+    xw = -IN_X                                                   # inner face of the left wall
+    sz0, sz1 = BACK_IN - 0.1, BACK_IN + TACT_W
+    for sgn in (-1, 1):
+        y0, y1 = sorted((SHUTTER_Y + sgn * (TACT_W / 2 + 0.15), SHUTTER_Y + sgn * (TACT_W / 2 + 1.75)))
+        body = body.union(box(xw - 0.1, xw + TACT_BASE_W - 0.3, y0, y1, sz0, sz1))
+    body = body.union(box(xw + TACT_BASE_W + 0.1, xw + TACT_BASE_W + 2.3,
+                          SHUTTER_Y - 1.5, SHUTTER_Y + 1.5, sz0, sz1))
+
+    # tripod mount: a block behind the bottom wall with a pocket for a 1/4"-20 nut
+    body = body.union(box(-9.5, 9.5, -IN_Y - 0.1, BAY_Y0 - RIB, sz0, PLATE_BACK))
+
     # --- everything below removes material ---
 
     # a gap in the bay's left rib, where the battery lead leaves towards its connector
@@ -215,8 +235,20 @@ def make_body():
     # microphones: a small hole in each side wall
     body = body.cut(cyl_x(-OUT_X - 1, OUT_X + 1, MIC_Y, MIC_Z, 1.6))
 
-    # right edge, near the top: the shutter button, where the index finger rests
-    body = body.cut(cyl_x(IN_X - 1, OUT_X + 1, SHUTTER_Y, SHUTTER_Z, SHUTTER_HOLE_D))
+    # left edge, near the top: the shutter cap
+    body = body.cut(cyl_x(-OUT_X - 1, -IN_X + 1, SHUTTER_Y, SHUTTER_Z, CAP_D + 0.6))
+
+    # tripod: clearance for the screw, the nut pocket (hexagonal below its centre, so the
+    # nut cannot turn; a slot above it, so it drops in from the front; the battery plate
+    # closes the slot)
+    af, th = TRIPOD_NUT[0] + 0.3, TRIPOD_NUT[1] + 0.35
+    ny0 = BOT_OUT + 1.2                                          # 1.2 mm of wall under the nut
+    body = body.cut(cyl_y(BOT_OUT - 1, BAY_Y0 - RIB - 0.6, 0, TRIPOD_Z, 6.8))
+    hexagon = (cq.Workplane("XZ").polygon(6, af / math.cos(math.radians(30))).extrude(-th)
+               .translate((0, ny0, TRIPOD_Z)))
+    body = body.cut(hexagon)
+    body = body.cut(box(-af / math.cos(math.radians(30)) / 2, af / math.cos(math.radians(30)) / 2,
+                        ny0, ny0 + th, TRIPOD_Z, PLATE_BACK + 1))
 
     # left edge: rotary encoder
     body = body.cut(cyl_x(-OUT_X - 1, -IN_X + 1, ENCODER_Y, ENCODER_Z, ENCODER_HOLE_D))
@@ -235,6 +267,8 @@ def make_plate():
         else:
             ear = box(x - 4.5, min(x + 4.5, IN_X - c), BAY_Y1, y + 4.5, z0, z1)
         plate = plate.union(ear).cut(cyl_z(x, y, z0 - 1, z1 + 1, 2.4))
+    # a tongue that closes the tripod nut's slot
+    plate = plate.union(box(-8.0, 8.0, -IN_Y + c, BAY_Y0 - RIB, z0, z1))
     # room for the speaker plug and its wires
     plate = plate.cut(box(SPK_CONN[0] - 3, IN_X + 1, SPK_CONN[2] - 3, SPK_CONN[3] + 3, z0 - 1, z1 + 1))
     # the bottom right post stands at the corner of the bay
@@ -272,6 +306,17 @@ def make_plunger():
     flange = cyl_x(tip, IN_X - 0.45, 0, 0, 5.5)
     shaft = cyl_x(tip, OUT_X + 1.4, 0, 0, 3.2)
     return flange.union(shaft).translate((0, KEY_BOOT_Y, KEY_Z))
+
+
+# ---------------------------------------------------------------- shutter cap
+
+def make_cap():
+    """Through the left wall: a flange behind the wall keeps it in, a nub presses the switch."""
+    xw = -IN_X
+    shaft = cyl_x(-OUT_X - 1.2, xw, SHUTTER_Y, SHUTTER_Z, CAP_D)
+    flange = cyl_x(xw, xw + CAP_FLANGE_T, SHUTTER_Y, SHUTTER_Z, TACT_W - 0.2)
+    nub = cyl_x(xw + CAP_FLANGE_T, xw + TACT_TOP_W, SHUTTER_Y, SHUTTER_Z, 4.0)
+    return shaft.union(flange).union(nub).edges("%CIRCLE").edges("<X").fillet(0.8)
 
 
 # ---------------------------------------------------------------- a quick first print
@@ -320,8 +365,11 @@ def fitted_proxies():
                        BACK_IN, BACK_IN + BATTERY[2]),
         "speaker": box(SPK_X0 + 0.6, SPK_X0 + 0.6 + SPEAKER[0], TOP_IN - SPEAKER[2], TOP_IN,
                        BACK_IN + 0.3, BACK_IN + 0.3 + SPEAKER[1]),
-        "shutter": cyl_x(IN_X - SHUTTER_DEPTH, IN_X, SHUTTER_Y, SHUTTER_Z, 12.0)
-        .union(cyl_x(IN_X - 3.0, IN_X, SHUTTER_Y, SHUTTER_Z, SHUTTER_NUT_D - 0.6)),
+        "shutter": box(-IN_X + TACT_TOP_W + TACT_H - TACT_BODY, -IN_X + TACT_BASE_W,
+                       SHUTTER_Y - TACT_W / 2, SHUTTER_Y + TACT_W / 2, BACK_IN + 0.05, BACK_IN + TACT_W)
+        .union(cyl_x(-IN_X + TACT_TOP_W + 0.02, -IN_X + TACT_TOP_W + TACT_H - TACT_BODY, SHUTTER_Y, SHUTTER_Z, 6.5)),
+        "tripod_nut": cq.Workplane("XZ").polygon(6, TRIPOD_NUT[0] / math.cos(math.radians(30))).extrude(-TRIPOD_NUT[1])
+        .translate((0, BOT_OUT + 1.35, TRIPOD_Z)),
         "encoder": box(-IN_X, -IN_X + 10.5, ENCODER_Y - 6, ENCODER_Y + 6, ENCODER_Z - 6, ENCODER_Z + 6),
         "camera": box(-LENS_BLOCK / 2, LENS_BLOCK / 2, LENS_Y - LENS_BLOCK / 2, LENS_Y + LENS_BLOCK / 2,
                       LENS_TOP_Z, PCB_BACK).union(box(-4.5, 4.5, 33.4, LENS_Y, -6.3, PCB_BACK)),
@@ -342,7 +390,8 @@ def main():
     os.makedirs(os.path.join(here, "stl"), exist_ok=True)
     os.makedirs(os.path.join(here, "step"), exist_ok=True)
 
-    parts = {"body": make_body(), "battery_plate": make_plate(), "lens_hood": make_hood(), "button_plunger": make_plunger()}
+    parts = {"body": make_body(), "battery_plate": make_plate(), "lens_hood": make_hood(), "button_plunger": make_plunger(),
+             "shutter_cap": make_cap()}
     board, fitted = board_proxies(), fitted_proxies()
 
     print(f"case: {2 * OUT_X:.1f} x {TOP_OUT - BOT_OUT:.1f} x {FRONT - BACK_OUT:.1f} mm "
@@ -381,7 +430,8 @@ def main():
         "microphone right": cyl_x(IN_X - 2, OUT_X + 2, MIC_Y, MIC_Z, 1.0),
         "microphone left": cyl_x(-OUT_X - 2, -IN_X + 2, MIC_Y, MIC_Z, 1.0),
         "encoder": cyl_x(-OUT_X - 2, -IN_X + 2, ENCODER_Y, ENCODER_Z, 7.0),
-        "shutter button": cyl_x(IN_X - 2, OUT_X + 2, SHUTTER_Y, SHUTTER_Z, 12.0),
+        "shutter cap": cyl_x(-OUT_X - 2, -IN_X + 2, SHUTTER_Y, SHUTTER_Z, CAP_D),
+        "tripod screw": cyl_y(BOT_OUT - 2, BOT_OUT + 9.0, 0, TRIPOD_Z, 6.35),
         "speaker grille": box(GRILLE_X[0] - 0.4, GRILLE_X[0] + 0.4, TOP_IN - 2, TOP_OUT + 2, SPK_ZC - 3.0, SPK_ZC + 3.0),
         "lens hood": box(-5, 5, LENS_Y - 5, LENS_Y + 5, BACK_OUT - 2, BACK_IN + 2),
         "screw, bottom left": cyl_z(STANDOFFS[0][0], STANDOFFS[0][1], BACK_OUT - 2, STANDOFF_Z + 2, 2.5),
@@ -398,6 +448,8 @@ def main():
         "lens_hood": parts["lens_hood"].translate((0, -LENS_Y, -HOOD_OUT_Z)),
         "button_plunger": parts["button_plunger"].translate((-(KEY_TIP_X + 0.15), -KEY_BOOT_Y, -KEY_Z))
         .rotate((0, 0, 0), (0, 1, 0), -90),
+        "shutter_cap": parts["shutter_cap"].translate((OUT_X + 1.2, -SHUTTER_Y, -SHUTTER_Z))
+        .rotate((0, 0, 0), (0, 1, 0), -90),
     }
     for name, shape in printable.items():
         bb = shape.val().BoundingBox()
@@ -408,7 +460,8 @@ def main():
               f"{volume(shape) / 1000:.1f} cm3, {len(solids)} solid(s) -> stl/{name}.stl")
 
     asm = cq.Assembly()
-    colors = {"body": (0.25, 0.27, 0.3), "battery_plate": (0.8, 0.5, 0.1), "lens_hood": (0.85, 0.1, 0.45), "button_plunger": (0.85, 0.1, 0.45)}
+    colors = {"body": (0.25, 0.27, 0.3), "battery_plate": (0.8, 0.5, 0.1), "lens_hood": (0.85, 0.1, 0.45), "button_plunger": (0.85, 0.1, 0.45),
+              "shutter_cap": (0.85, 0.1, 0.45)}
     for name, shape in parts.items():
         asm.add(shape, name=name, color=cq.Color(*colors[name]))
     asm.add(parts["button_plunger"].translate((0, KEY_POWER_Y - KEY_BOOT_Y, 0)), name="button_plunger_power",
