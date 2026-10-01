@@ -10,8 +10,17 @@ ESP-IDF v5.5.5 project for the Waveshare ESP32-P4-WIFI6-Touch-LCD-5 with an OV56
 .\build.ps1 COM10 rev3_x # other silicon profile (untested)
 ```
 
+On Linux and macOS, with the ESP-IDF environment active, `./build.sh [port] [profile]` does
+the same and also writes `build/<profile>/glitchesp-merged.bin`, the single image attached
+to releases. The GitHub workflow uses that script.
+
 `esptool` refuses a `rev3_x` image on a rev v1.x chip and the other way round, so pick the
 profile that matches your board (`esptool.py chip_id` prints the revision).
+
+The firmware version comes from `version.txt` and is shown in the settings panel; component
+versions are pinned in `dependencies.lock`. To make a release: add a section to
+`../CHANGELOG.md`, set `version.txt`, and push a tag `vX.Y.Z`; the workflow builds the images
+and publishes them with that section as the release notes.
 
 ## Layout
 
@@ -142,7 +151,7 @@ checked from a PC:
 ```
 photo | video | dump | stilldump | uidump | zoom [1..6] | fx <id> | amount <0..1>
 bar 0/1 | knob <steps>|click|reroll | idle [poke] | eject | edit [fx]|close | param <fx> <param> <value>
-recipe | preset list|save N|load N|clear N|panel 0/1 | settings 0/1 | set burst|h264|hires <n> | ae
+recipe | preset list|save N|load N|clear N|panel 0/1 | settings 0/1 | set burst|h264|hires|quality <n> | ae
 gallery open|close|next|prev|play|look|delete
 ls | get <file> | reg <hex> [hex] | tele <x0> <y0> | sdbench | help
 ```

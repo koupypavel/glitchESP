@@ -2,6 +2,7 @@
 #include <string.h>
 #include <math.h>
 #include "esp_log.h"
+#include "esp_app_desc.h"
 #include "lvgl.h"
 #include "ui_lvgl.h"
 #include "ui_live.h"
@@ -478,6 +479,10 @@ static void settings_open_cb(lv_event_t *e)
     lv_label_set_text(cl, "Close");
     lv_obj_center(cl);
     lv_obj_add_event_cb(close, settings_close_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *ver = lv_label_create(s_settings);                /* firmware version, from version.txt */
+    lv_obj_set_style_text_color(ver, lv_color_hex(0x909090), 0);
+    lv_label_set_text_fmt(ver, "glitchESP %s", esp_app_get_description()->version);
 }
 
 /* Control bar geometry: four rows of four effect chips, the amount slider, five tools. */

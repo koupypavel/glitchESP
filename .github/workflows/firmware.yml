@@ -1,0 +1,84 @@
+# Builds the effect harness and the firmware on every push and pull request. A tag of the form
+# v1.2.3 also publishes a GitHub release with the flashable images and the matching section
+# of CHANGELOG.md as its notes.
+name: Firmware
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fxlab:
+    name: Effects on the PC (fxlab)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: bash tools/fxlab/build.sh
+      - name: Run every effect on the synthetic scene
+        run: |
+          out=tools/fxlab/out
+          $out/fxlab --list
+          $out/fxlab --synth $out/synth.ppm
+          for fx in $($out/fxlab --list | grep -E '^[a-z]' | awk '{print $1}'); do
+            $out/fxlab $out/synth.ppm $out/out_$fx.ppm --amount 0.6 --repeat 3 $fx
+          done
+
+  firmware:
+    name: Firmware (ESP32-P4, rev1_3)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write          # only used by the release step on a tag
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build with ESP-IDF v5.5.5
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.5
+          target: esp32p4
+          path: firmware
+          command: bash build.sh
+
+      - name: Collect the images
+        run: |
+          set -e
+          build=firmware/build/rev1_3
+          tag="${GITHUB_REF_NAME}"
+          case "$tag" in v*) ;; *) tag="dev-${GITHUB_SHA::7}" ;; esac
+          mkdir -p dist/parts/bootloader dist/parts/partition_table
+          cp "$build/glitchesp-merged.bin" "dist/glitchesp-$tag-rev1_3-merged.bin"
+          cp "$build/glitchesp.bin" dist/parts/
+          cp "$build/bootloader/bootloader.bin" dist/parts/bootloader/
+          cp "$build/partition_table/partition-table.bin" dist/parts/partition_table/
+          cp "$build/flash_args" dist/parts/
+          (cd dist/parts && zip -qr "../glitchesp-$tag-rev1_3-parts.zip" .)
+          rm -r dist/parts
+          (cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: glitchesp-firmware
+          path: dist/
+
+      - name: Release notes from CHANGELOG.md
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          awk -v v="$ver" '/^## /{p = index($0, "[" v "]") > 0; next} p' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then echo "No CHANGELOG.md section for $ver" >&2; exit 1; fi
+          cat notes.md
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: glitchESP ${{ github.ref_name }}
+          body_path: notes.md
+          files: dist/*
