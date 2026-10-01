@@ -10,7 +10,9 @@ board's buttons, the screws, the lens hood and the battery plate fitted; the spe
 moved the shutter to the right side. Version 3 takes a TC-1212T tactile switch as the
 shutter, on the left side, with a printed cap, and adds a 1/4"-20 tripod mount in the bottom
 edge. Version 4 fixes the battery bay, which ran into the lens opening and the bottom-right
-standoff post: the bay is now 83.7 mm long instead of 88. Compared with version 1, print the
+standoff post: the bay is now 83.7 mm long instead of 88. It also removes a layer that
+closed the lens hood's window at its narrow end (a modelling error: two cuts that should
+have overlapped left a hair-thin skin between them, which the slicer printed as a layer). Compared with version 1, print the
 body, the battery plate, the lens hood and the new shutter cap again; the plungers are
 unchanged.
 
@@ -166,4 +168,5 @@ python -m venv .venv
 `enclosure.py` prints the outer size and the largest battery, then three checks: that no
 printed part overlaps the board, the parts you add or another printed part; that the
 battery bay keeps clear of the standoff posts, the lens opening, the bosses, the tripod
-block and the shutter holder; and that a probe passes through every opening.
+block and the shutter holder; and that a probe passes through every opening, including
+the camera's view through the lens hood.

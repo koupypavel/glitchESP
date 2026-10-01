@@ -300,7 +300,9 @@ def make_hood():
     fy = out_h[1] + HOOD_WALL + LENS_TRAVEL + 3.0
     flange = rounded(-15.5, 15.5, -fy, fy, HOOD_OUT_Z, BACK_OUT, 3.0)
     hood = shell.union(collar).union(flange)
-    hood = hood.cut(frustum(HOOD_SHOULDER_Z - 0.01, (HOOD_APERTURE, HOOD_APERTURE), HOOD_OUT_Z - 0.01, out_h))
+    # the window starts inside the socket and runs out past the flange: the two cuts must
+    # overlap, or a membrane is left between them that the slicer prints as a closed layer
+    hood = hood.cut(frustum(HOOD_SHOULDER_Z + 0.5, hood_half(HOOD_SHOULDER_Z + 0.5), HOOD_OUT_Z - 0.5, hood_half(HOOD_OUT_Z - 0.5)))
     hood = hood.cut(box(-HOOD_SOCKET / 2, HOOD_SOCKET / 2, -HOOD_SOCKET / 2, HOOD_SOCKET / 2,
                         HOOD_SHOULDER_Z, HOOD_FRONT_Z + 1))
     for dx, dy in HOOD_SCREWS:                                   # slots, so the hood can slide
@@ -464,6 +466,10 @@ def main():
         "screw, top right": cyl_z(STANDOFFS[3][0], STANDOFFS[3][1], BACK_OUT - 2, STANDOFF_Z + 2, 2.5),
     }
     blocked = [n for n, pr in probes.items() if volume(parts["body"].intersect(pr)) > 0.01]
+    # the camera's view: through the hood from the lens to the outside, any thickness counts
+    view_probe = frustum(LENS_TOP_Z - 0.05, (1.5, 1.5), HOOD_OUT_Z - 1.0, hood_half(HOOD_OUT_Z - 1.0, -0.3)).translate((0, LENS_Y, 0))
+    if volume(parts["lens_hood"].intersect(view_probe)) > 0.0:
+        blocked.append("view through the lens hood")
     print("openings check:", "all open" if not blocked else "BLOCKED: " + ", ".join(blocked))
 
     # each part in the position it is printed in: largest flat face on the bed
