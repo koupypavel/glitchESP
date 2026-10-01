@@ -113,7 +113,7 @@ python -m esptool --chip esp32p4 -p COM10 -b 460800 write_flash @flash_args
 [`hardware/enclosure`](hardware/enclosure) has a printable case with a battery bay, a
 speaker pocket, openings for every port and button, a shutter switch, a rotary encoder,
 a tripod thread and an adjustable lens hood, as STL files and as the CadQuery script that
-generates them. The first version has been printed and fitted; the current one (version 3)
+generates them. The first version has been printed and fitted; the current one (version 4)
 has a bigger speaker pocket, a tactile-switch shutter on the left side and the tripod
 mount.
 
@@ -219,7 +219,7 @@ Connectivity:
 Project:
 
 - [ ] Photos and a video from the device in this README (the samples above are PC renders)
-- [ ] Print and fit version 3 of the enclosure in [`hardware/enclosure`](hardware/enclosure)
+- [ ] Print and fit version 4 of the enclosure in [`hardware/enclosure`](hardware/enclosure)
       (version 1 fitted except the speaker); lanyard eye
 
 ## License

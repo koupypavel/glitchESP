@@ -4,13 +4,15 @@ A printable case for the glitchESP camera: the Waveshare ESP32-P4-WIFI6-Touch-LC
 kit camera, a flat LiPo cell, a small speaker, a 12 × 12 mm tactile switch as the shutter,
 a rotary encoder and a tripod thread.
 
-**Version 3, not printed yet.** Version 1 was printed: the display unit, the openings, the
+**Version 4, not printed yet.** Version 1 was printed: the display unit, the openings, the
 board's buttons, the screws, the lens hood and the battery plate fitted; the speaker
 (26 × 26 × 5 mm) did not. Version 2 made room for the speaker (case 2.2 mm thicker) and
 moved the shutter to the right side. Version 3 takes a TC-1212T tactile switch as the
 shutter, on the left side, with a printed cap, and adds a 1/4"-20 tripod mount in the bottom
-edge. Compared with version 1, print the body, the battery plate, the lens hood and the
-new shutter cap again; the plungers are unchanged.
+edge. Version 4 fixes the battery bay, which ran into the lens opening and the bottom-right
+standoff post: the bay is now 83.7 mm long instead of 88. Compared with version 1, print the
+body, the battery plate, the lens hood and the new shutter cap again; the plungers are
+unchanged.
 
 Each version is checked in software: no part overlaps the board's 3D model or the parts you
 add, every opening is clear, and the STL files are closed meshes. Sizes of the parts the
@@ -56,7 +58,8 @@ wall, the switch in its holder, the back stop behind it.
 - **Back:** the lens hood. The kit camera lies loose on the board on a short cable, so the
   hood reaches in, holds the lens block in a square socket and can slide ±3.5 mm before
   its three screws are tightened. Its opening widens with the camera's field of view.
-- **Inside, behind the board:** a battery bay of 56.8 × 88 × 9.5 mm with a cover plate
+- **Inside, behind the board:** a battery bay of 56.8 × 83.7 × 9.5 mm (it fits between the
+  bottom-right standoff and the lens opening) with a cover plate
   that keeps the cell away from the board's solder joints, and a channel over the 40-pin
   header for the control wiring.
 
@@ -86,7 +89,7 @@ a short bridge over the speaker pocket (27 mm); a little sag there is out of sig
 | Hex nut, for the tripod thread | 1/4"-20 UNC (11.1 mm across flats, 5.6 mm thick) | 1 |
 | Rotary encoder with switch | EC11, threaded M7 bush, plus a knob | 1 |
 | Speaker | 8 Ω 2 W, 26 × 26 × 5 mm, GH1.25 2-pin plug | 1 |
-| LiPo cell, 3.7 V, **with protection circuit** | up to 55 × 87 × 9 mm, MX1.25 2-pin plug | 1 |
+| LiPo cell, 3.7 V, **with protection circuit** | up to 55 × 83 × 9 mm, MX1.25 2-pin plug | 1 |
 | Right-angle pin header, 2.54 mm | for pins 13 to 26 of the 40-pin header | 1 |
 
 The M2.5 screws must be 12 mm: the screw head sits 8.5 mm behind the standoff, so a 12 mm
@@ -104,7 +107,7 @@ These are the estimates. Change them at the top of `enclosure.py` and run it aga
 | `TACT_W`, `TACT_H`, `TACT_BODY` | 12, 7.3, 3.6 mm | Switch width, height from its base to the top of the actuator, height of its body alone. The cap's nub touches the actuator; if the switch does not click, lengthen `CAP_NUB_L` by 0.3 mm. |
 | `TRIPOD_NUT` | 11.11 × 5.56 mm | Across flats and thickness of your 1/4"-20 nut. |
 | `ENCODER_HOLE_D`, `ENCODER_BODY` | 7.2, 12.6 mm | EC11. Its small locating lug has no slot: snip it off or let the nut hold it. |
-| `BATTERY` | 56.75 × 88 × 9 mm | Bay width, bay length, cell thickness. |
+| `BATTERY` | 56.75 × 88 × 9 mm | Bay width, longest bay, cell thickness. The bay is shortened to what fits (now 83.7 mm); `enclosure.py` prints the largest cell. |
 
 The field-of-view angles of the hood (`FOV_HALF_X`, `FOV_HALF_Y`) fit what the firmware uses
 of the sensor today: a 9:16 slice. Reading the full 5 MP frame would need a wider hood.
@@ -160,6 +163,7 @@ python -m venv .venv
 .venv/Scripts/python render.py                    # the pictures
 ```
 
-`enclosure.py` prints the outer size, then two checks: that no printed part overlaps the
-board, the parts you add or another printed part, and that a probe passes through every
-opening.
+`enclosure.py` prints the outer size and the largest battery, then three checks: that no
+printed part overlaps the board, the parts you add or another printed part; that the
+battery bay keeps clear of the standoff posts, the lens opening, the bosses, the tripod
+block and the shutter holder; and that a probe passes through every opening.

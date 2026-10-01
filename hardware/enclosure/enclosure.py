@@ -24,7 +24,8 @@ import cadquery as cq
 
 # ---------------------------------------------------------------- parameters you may change
 
-BATTERY = (56.75, 88.0, 9.0)        # bay width (x), length (y), cell thickness (z)
+BATTERY = (56.75, 88.0, 9.0)        # bay width (x), longest bay (y), cell thickness (z); the bay is
+                                    # shortened to what fits between the standoffs and the lens opening
 SPEAKER = (26.0, 26.0, 5.0)         # along the top edge (x), depth into the case (z), thickness (y)
 TACT_W = 12.0                       # shutter: a 12 x 12 mm tactile switch (TC-1212T) ...
 TACT_H = 7.3                        # ... 7.3 mm from its base to the top of the actuator
@@ -85,8 +86,8 @@ BACK_IN = min(PLATE_BACK - BAY_DEPTH, ROOF_Z - (SPEAKER[1] + 0.6))
 BACK_OUT = BACK_IN - BACK
 
 BAY_X0 = IN_X - BATTERY[0]                          # battery bay: against the right wall
-BAY_Y0, BAY_Y1 = -54.9, -54.9 + BATTERY[1]
 RIB = 1.2
+CLEAR = 0.4                                         # gap between the bay's ribs and other features
 
 # shutter in the left wall, near the top, below the 40-pin header and the top-left standoff.
 # Distances into the case from the inner face of the left wall ("w"):
@@ -111,7 +112,6 @@ HOOD_FRONT_Z = HOOD_SHOULDER_Z + 3.5                # how far the socket reaches
 HOOD_OUT_Z = BACK_OUT - HOOD_T
 HOOD_SCREWS = [(-12.5, 9.0), (-12.5, -9.0), (12.5, -9.0)]      # relative to the lens centre
 
-PLATE_BOSSES = [(-13.0, -59.6), (28.0, BAY_Y1 + RIB + 3.0)]    # clear of the tripod mount and the shutter
 POST_D, BOSS_D = 8.0, 5.5
 
 
@@ -120,6 +120,19 @@ def hood_half(z, wall=0.0):
     d = HOOD_SHOULDER_Z - z
     return (HOOD_APERTURE + d * math.tan(math.radians(FOV_HALF_X)) + wall,
             HOOD_APERTURE + d * math.tan(math.radians(FOV_HALF_Y)) + wall)
+
+
+# the opening in the back for the lens hood (widest at the outside), including its travel
+HOLE_HX, _hy = hood_half(BACK_OUT, HOOD_WALL + 0.3)
+HOLE_Y0 = LENS_Y - _hy - LENS_TRAVEL
+HOLE_Y1 = min(LENS_Y + _hy + LENS_TRAVEL, IN_Y - 0.4)
+
+# battery bay: its bottom rib clears the bottom-right standoff post, its top rib clears the
+# lens opening
+BAY_Y0 = STANDOFFS[1][1] + POST_D / 2 + CLEAR + RIB
+BAY_Y1 = min(BAY_Y0 + BATTERY[1], HOLE_Y0 - CLEAR - RIB)
+
+PLATE_BOSSES = [(-13.0, -59.6), (28.0, BAY_Y1 + RIB + 3.0)]    # clear of the tripod mount and the shutter
 
 
 # ---------------------------------------------------------------- small helpers
@@ -216,9 +229,7 @@ def make_body():
         body = body.cut(cyl_z(dx, LENS_Y + dy, BACK_OUT - 1, BACK_IN + 3, 1.7))
 
     # the opening for the lens hood: its cross-section at the back wall, plus the travel
-    hx, hy = hood_half(BACK_OUT, HOOD_WALL + 0.3)        # the hood is widest at the outside
-    y_top = min(LENS_Y + hy + LENS_TRAVEL, IN_Y - 0.4)
-    body = body.cut(box(-hx, hx, LENS_Y - hy - LENS_TRAVEL, y_top, BACK_OUT - 1, BACK_IN + 0.01))
+    body = body.cut(box(-HOLE_HX, HOLE_HX, HOLE_Y0, HOLE_Y1, BACK_OUT - 1, BACK_IN + 0.01))
 
     # bottom edge: two USB-C plugs (the opening takes the plug's moulding), power LED
     for x in USB_X:
@@ -361,7 +372,7 @@ def board_proxies():
 def fitted_proxies():
     """What you add: battery, speaker, push-button, encoder, camera."""
     return {
-        "battery": box(BAY_X0 + 0.9, BAY_X0 + 0.9 + 55.0, BAY_Y0 + 0.5, BAY_Y0 + 0.5 + min(BATTERY[1] - 1, 87.0),
+        "battery": box(BAY_X0 + 0.9, BAY_X0 + 0.9 + 55.0, BAY_Y0 + 0.5, BAY_Y1 - 0.5,
                        BACK_IN, BACK_IN + BATTERY[2]),
         "speaker": box(SPK_X0 + 0.6, SPK_X0 + 0.6 + SPEAKER[0], TOP_IN - SPEAKER[2], TOP_IN,
                        BACK_IN + 0.3, BACK_IN + 0.3 + SPEAKER[1]),
@@ -395,7 +406,8 @@ def main():
     board, fitted = board_proxies(), fitted_proxies()
 
     print(f"case: {2 * OUT_X:.1f} x {TOP_OUT - BOT_OUT:.1f} x {FRONT - BACK_OUT:.1f} mm "
-          f"(+ {HOOD_T:.1f} mm lens hood); battery bay {BATTERY[0]:.1f} x {BATTERY[1]:.1f} x {BAY_DEPTH:.1f} mm")
+          f"(+ {HOOD_T:.1f} mm lens hood); battery bay {BATTERY[0]:.1f} x {BAY_Y1 - BAY_Y0:.1f} x {BAY_DEPTH:.1f} mm "
+          f"(cells up to {BATTERY[0] - 1.75:.0f} x {BAY_Y1 - BAY_Y0 - 1:.0f} x {BATTERY[2]:.0f} mm)")
     print(f"levels: front {FRONT:.1f}, plate {PLATE_BACK + PLATE_T:.1f}..{PLATE_BACK:.1f}, back inside {BACK_IN:.1f}, outside {BACK_OUT:.1f}")
 
     # collisions: every printed part against every stand-in, and the printed parts with each other
@@ -417,6 +429,20 @@ def main():
                 bb = parts[names[i]].intersect(parts[names[j]]).val().BoundingBox()
                 print(f"  COLLISION {names[i]} / {names[j]}: {v:.2f} mm3 at x {bb.xmin:.1f}..{bb.xmax:.1f} y {bb.ymin:.1f}..{bb.ymax:.1f} z {bb.zmin:.1f}..{bb.zmax:.1f}")
     print("collision check:", "clean" if problems == 0 else f"{problems} problem(s)")
+
+    # layout of the body itself: the battery bay with its ribs must keep clear of everything
+    # else that stands on the back wall or goes through it
+    bay = box(BAY_X0 - RIB, IN_X, BAY_Y0 - RIB, BAY_Y1 + RIB, BACK_OUT - 1, PLATE_BACK)
+    keep_out = {f"standoff post {i + 1}": cyl_z(x, y, BACK_OUT - 1, STANDOFF_Z, POST_D + 2 * CLEAR)
+                for i, (x, y) in enumerate(STANDOFFS)}
+    keep_out["lens opening"] = box(-HOLE_HX - CLEAR, HOLE_HX + CLEAR, HOLE_Y0 - CLEAR, HOLE_Y1, BACK_OUT - 1, BACK_IN + 1)
+    keep_out.update({f"hood boss {i + 1}": cyl_z(dx, LENS_Y + dy, BACK_OUT - 1, BACK_IN + 2, BOSS_D)
+                     for i, (dx, dy) in enumerate(HOOD_SCREWS)})
+    keep_out["tripod block"] = box(-9.5, 9.5, -IN_Y, BAY_Y0 - RIB - 0.01, BACK_OUT - 1, PLATE_BACK)
+    keep_out["shutter holder"] = box(-IN_X, -IN_X + TACT_BASE_W + 2.3, SHUTTER_Y - TACT_W / 2 - 1.75,
+                                     SHUTTER_Y + TACT_W / 2 + 1.75, BACK_OUT - 1, BACK_IN + TACT_W)
+    overlaps = [n for n, k in keep_out.items() if volume(bay.intersect(k)) > 0.01]
+    print("layout check:", "battery bay clear" if not overlaps else "BATTERY BAY OVERLAPS: " + ", ".join(overlaps))
 
     # openings: a thin probe pushed through each one must not touch the body
     probes = {
