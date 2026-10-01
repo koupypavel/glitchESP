@@ -121,8 +121,8 @@ def main():
     cut = everything + [(board["lcd"], (0.3, 0.3, 0.35), 1), (board["glass"], glass, 1)]
     view("section_lens", cut, (-1, 0, 0), up=(0, 0, 1), size=(1500, 500), zoom=2.5, clip=enc.box(-100, 0.0, -100, 100, -100, 100))
     view("section_battery", cut, (0, 1, 0), up=(0, 0, 1), size=(1100, 500), zoom=1.7, clip=enc.box(-100, 100, -10.0, 100, -100, 100))
-    view("section_shutter", cut, (-1, 0, 0), up=(0, 0, 1), size=(1500, 500), zoom=2.5,
-         clip=enc.box(-100, enc.SHUTTER_X, -100, 100, -100, 100))
+    view("section_shutter", cut, (0, 1, 0), up=(0, 0, 1), size=(1100, 500), zoom=1.7,
+         clip=enc.box(-100, 100, enc.SHUTTER_Y, 100, -100, 100))
 
 
 if __name__ == "__main__":

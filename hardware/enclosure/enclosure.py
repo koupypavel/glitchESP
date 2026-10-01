@@ -25,7 +25,7 @@ import cadquery as cq
 # ---------------------------------------------------------------- parameters you may change
 
 BATTERY = (56.75, 88.0, 9.0)        # bay width (x), length (y), cell thickness (z)
-SPEAKER = (30.0, 20.0, 6.0)         # along the top edge (x), depth into the case (z), thickness (y)
+SPEAKER = (26.0, 26.0, 5.0)         # along the top edge (x), depth into the case (z), thickness (y)
 SHUTTER_HOLE_D = 12.2               # 12 mm panel push-button
 SHUTTER_NUT_D = 16.8                # room for its nut (across corners)
 ENCODER_HOLE_D = 7.2                # EC11: M7 bush
@@ -71,21 +71,29 @@ TOP_IN = IN_Y + FOREHEAD - WALL                     # inner face of the top wall
 TOP_OUT = IN_Y + FOREHEAD
 BOT_OUT = -(IN_Y + WALL)
 FRONT = GLASS_FRONT + RIM                           # front edge of the walls
-BAY_DEPTH = BATTERY[2] + 0.5                        # battery plus a little room
+BAY_DEPTH = BATTERY[2] + 0.5                        # battery plus a little room (at least)
 PLATE_T = 1.6                                       # cover plate over the battery
 PLATE_BACK = STANDOFF_Z - 2.4 - PLATE_T             # plate sits 2.4 mm behind the standoff faces
-BACK_IN = PLATE_BACK - BAY_DEPTH                    # inner face of the back wall
+ROOF_Z = FRONT - 1.2                                # the speaker pocket leaves 1.2 mm of front wall
+# inner face of the back wall: deep enough for the battery and for the speaker standing in
+# the forehead, whichever needs more
+BACK_IN = min(PLATE_BACK - BAY_DEPTH, ROOF_Z - (SPEAKER[1] + 0.6))
 BACK_OUT = BACK_IN - BACK
-ROOF_Z = -1.3                                       # underside of the forehead's solid front part
 
 BAY_X0 = IN_X - BATTERY[0]                          # battery bay: against the right wall
 BAY_Y0, BAY_Y1 = -54.9, -54.9 + BATTERY[1]
 RIB = 1.2
 
-SHUTTER_X, SHUTTER_Z = 17.5, BACK_IN + SHUTTER_NUT_D / 2 + 0.05
+# shutter button in the right wall: between the POWER button and the top-right standoff,
+# low enough that its nut clears the board's parts
+SHUTTER_Y, SHUTTER_Z = 43.2, BACK_IN + SHUTTER_NUT_D / 2 + 0.05
+SHUTTER_DEPTH = 19.0                # how far the button reaches into the case behind the wall
 ENCODER_Y, ENCODER_Z = -22.0, BACK_IN + ENCODER_BODY / 2 + 0.5
 SPK_X0 = -IN_X + 1.55                               # speaker pocket in the forehead, left
 SPK_X1 = SPK_X0 + SPEAKER[0] + 1.2
+SPK_ZC = BACK_IN + 0.3 + SPEAKER[1] / 2                # speaker centre (depth)
+_n = int((SPEAKER[0] - 6.0) // 4.0) + 1               # grille slots, 4 mm apart, centred on the speaker
+GRILLE_X = [SPK_X0 + 0.6 + SPEAKER[0] / 2 + (i - (_n - 1) / 2) * 4.0 for i in range(_n)]
 
 HOOD_T = 1.6                                        # hood flange, lies on the outside of the back
 HOOD_WALL = 1.4
@@ -96,7 +104,7 @@ HOOD_FRONT_Z = HOOD_SHOULDER_Z + 3.5                # how far the socket reaches
 HOOD_OUT_Z = BACK_OUT - HOOD_T
 HOOD_SCREWS = [(-12.5, 9.0), (-12.5, -9.0), (12.5, -9.0)]      # relative to the lens centre
 
-PLATE_BOSSES = [(0.0, -59.6), (28.0, BAY_Y1 + RIB + 3.0)]
+PLATE_BOSSES = [(0.0, -59.6), (-19.0, BAY_Y1 + RIB + 3.3)]     # the second one left of the lens, clear of the shutter
 POST_D, BOSS_D = 8.0, 5.5
 
 
@@ -154,15 +162,10 @@ def make_body():
     # the cavity has the outline of the glass all the way down
     body = body.cut(rounded(-IN_X, IN_X, -IN_Y, IN_Y, BACK_IN, FRONT + 1, GLASS_R + FIT))
 
-    # forehead: a pocket for the speaker (it stands against the top wall and plays through
-    # it) and one for the shutter button's body and nut
-    body = body.cut(box(SPK_X0, SPK_X1, IN_Y - 1, TOP_IN, BACK_IN, ROOF_Z))
-    body = body.cut(box(SHUTTER_X - SHUTTER_NUT_D / 2 - 0.3, SHUTTER_X + SHUTTER_NUT_D / 2 + 0.3,
-                        IN_Y - 1, TOP_IN, BACK_IN, SHUTTER_Z + SHUTTER_NUT_D / 2 + 0.3))
-    body = body.cut(cyl_y(TOP_IN - 1, TOP_OUT + 1, SHUTTER_X, SHUTTER_Z, SHUTTER_HOLE_D))
-    for i in range(6):                                           # speaker grille
-        x = SPK_X0 + 5.6 + i * 4.0
-        body = body.cut(slot_y(TOP_IN - 1, TOP_OUT + 1, x, (BACK_IN + ROOF_Z) / 2, 13.0, 1.5, 90))
+    # forehead: a pocket for the speaker (it stands against the top wall and plays through it)
+    body = body.cut(box(SPK_X0, SPK_X1, IN_Y, TOP_IN, BACK_IN, ROOF_Z))
+    for x in GRILLE_X:                                           # speaker grille
+        body = body.cut(slot_y(TOP_IN - 1, TOP_OUT + 1, x, SPK_ZC, 0.6 * SPEAKER[1], 1.5, 90))
 
     # posts under the four standoffs
     for x, y in STANDOFFS:
@@ -211,6 +214,9 @@ def make_body():
 
     # microphones: a small hole in each side wall
     body = body.cut(cyl_x(-OUT_X - 1, OUT_X + 1, MIC_Y, MIC_Z, 1.6))
+
+    # right edge, near the top: the shutter button, where the index finger rests
+    body = body.cut(cyl_x(IN_X - 1, OUT_X + 1, SHUTTER_Y, SHUTTER_Z, SHUTTER_HOLE_D))
 
     # left edge: rotary encoder
     body = body.cut(cyl_x(-OUT_X - 1, -IN_X + 1, ENCODER_Y, ENCODER_Z, ENCODER_HOLE_D))
@@ -314,8 +320,8 @@ def fitted_proxies():
                        BACK_IN, BACK_IN + BATTERY[2]),
         "speaker": box(SPK_X0 + 0.6, SPK_X0 + 0.6 + SPEAKER[0], TOP_IN - SPEAKER[2], TOP_IN,
                        BACK_IN + 0.3, BACK_IN + 0.3 + SPEAKER[1]),
-        "shutter": cyl_y(TOP_IN - 19.0, TOP_IN, SHUTTER_X, SHUTTER_Z, 12.0)
-        .union(cyl_y(TOP_IN - 3.0, TOP_IN, SHUTTER_X, SHUTTER_Z, SHUTTER_NUT_D - 0.6)),
+        "shutter": cyl_x(IN_X - SHUTTER_DEPTH, IN_X, SHUTTER_Y, SHUTTER_Z, 12.0)
+        .union(cyl_x(IN_X - 3.0, IN_X, SHUTTER_Y, SHUTTER_Z, SHUTTER_NUT_D - 0.6)),
         "encoder": box(-IN_X, -IN_X + 10.5, ENCODER_Y - 6, ENCODER_Y + 6, ENCODER_Z - 6, ENCODER_Z + 6),
         "camera": box(-LENS_BLOCK / 2, LENS_BLOCK / 2, LENS_Y - LENS_BLOCK / 2, LENS_Y + LENS_BLOCK / 2,
                       LENS_TOP_Z, PCB_BACK).union(box(-4.5, 4.5, 33.4, LENS_Y, -6.3, PCB_BACK)),
@@ -375,8 +381,8 @@ def main():
         "microphone right": cyl_x(IN_X - 2, OUT_X + 2, MIC_Y, MIC_Z, 1.0),
         "microphone left": cyl_x(-OUT_X - 2, -IN_X + 2, MIC_Y, MIC_Z, 1.0),
         "encoder": cyl_x(-OUT_X - 2, -IN_X + 2, ENCODER_Y, ENCODER_Z, 7.0),
-        "shutter button": cyl_y(TOP_IN - 2, TOP_OUT + 2, SHUTTER_X, SHUTTER_Z, 12.0),
-        "speaker grille": box(SPK_X0 + 5.6 - 0.4, SPK_X0 + 5.6 + 0.4, TOP_IN - 2, TOP_OUT + 2, -17.0, -7.0),
+        "shutter button": cyl_x(IN_X - 2, OUT_X + 2, SHUTTER_Y, SHUTTER_Z, 12.0),
+        "speaker grille": box(GRILLE_X[0] - 0.4, GRILLE_X[0] + 0.4, TOP_IN - 2, TOP_OUT + 2, SPK_ZC - 3.0, SPK_ZC + 3.0),
         "lens hood": box(-5, 5, LENS_Y - 5, LENS_Y + 5, BACK_OUT - 2, BACK_IN + 2),
         "screw, bottom left": cyl_z(STANDOFFS[0][0], STANDOFFS[0][1], BACK_OUT - 2, STANDOFF_Z + 2, 2.5),
         "screw, top right": cyl_z(STANDOFFS[3][0], STANDOFFS[3][1], BACK_OUT - 2, STANDOFF_Z + 2, 2.5),
