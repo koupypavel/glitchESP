@@ -13,6 +13,7 @@
 #include "presets.h"
 #include "gallery.h"
 #include "ui_editor.h"
+#include "battery.h"
 
 static const char *TAG = "ui_live";
 
@@ -397,6 +398,14 @@ static void settings_video_cb(lv_event_t *e)
     settings_set(&cfg);
 }
 
+static void settings_low_light_cb(lv_event_t *e)
+{
+    lv_obj_t *dd = lv_event_get_target(e);
+    settings_t cfg = *settings_get();
+    cfg.low_light = (uint8_t)lv_dropdown_get_selected(dd);
+    settings_set(&cfg);
+}
+
 static void settings_quality_cb(lv_event_t *e)
 {
     lv_obj_t *dd = lv_event_get_target(e);
@@ -440,7 +449,7 @@ static void settings_open_cb(lv_event_t *e)
     if (s_settings) return;
     const settings_t *cfg = settings_get();
     s_settings = lv_obj_create(lv_screen_active());
-    lv_obj_set_size(s_settings, FP_OUT_W - 60, 700);
+    lv_obj_set_size(s_settings, FP_OUT_W - 60, 780);
     lv_obj_align(s_settings, LV_ALIGN_CENTER, 0, -80);
     lv_obj_set_style_bg_color(s_settings, lv_color_hex(0x181818), 0);
     lv_obj_set_style_bg_opa(s_settings, LV_OPA_COVER, 0);
@@ -469,6 +478,7 @@ static void settings_open_cb(lv_event_t *e)
     add_dropdown_row(s_settings, "Burst", "Off\n3 photos\n5 photos\n10 photos", burst_idx, settings_burst_cb);
     add_dropdown_row(s_settings, "Video format", "MJPEG (plays here)\nH.264 (smaller)", cfg->video_h264 ? 1 : 0,
                      settings_video_cb);
+    add_dropdown_row(s_settings, "Low light", "Auto\nOff\nAlways", cfg->low_light, settings_low_light_cb);
     add_dropdown_row(s_settings, "Preview quality", "Auto\nFull\nHalf", cfg->quality, settings_quality_cb);
 
     lv_obj_t *close = lv_button_create(s_settings);
@@ -624,14 +634,37 @@ static void create_control_bar(lv_obj_t *parent)
     set_bar_hidden(settings_get()->bar_hidden, false);
 }
 
+/* Battery for the status line, and what to do when it runs low: warn once at 10 %, and
+ * close a recording before the board browns out, so the video file stays readable. */
+static const char *battery_text(char *buf, size_t len)
+{
+    static bool s_warned;
+    battery_info_t b;
+    battery_get(&b);
+    if (b.state == BATTERY_UNKNOWN || b.state == BATTERY_NONE) return "";
+    if (b.low && !s_warned) {
+        s_warned = true;
+        toast_show("battery low", 3000);
+    }
+    if (!b.low) s_warned = false;
+    if (b.critical && capture_video_active()) {
+        capture_video_stop();
+        toast_show("battery empty: recording stopped", 4000);
+    }
+    snprintf(buf, len, "   %s%d%%", b.state == BATTERY_CHARGING ? "+" : "", b.percent);
+    return buf;
+}
+
 static void status_timer_cb(lv_timer_t *t)
 {
     (void)t;
-    lv_label_set_text_fmt(s_status, "cam %lu fps   fx %lu ms   %s   shots %lu",
-                          (unsigned long)frame_pipeline_get_fps(),
+    char bat[16];
+    int night = cam_ctrl_night_level();
+    lv_label_set_text_fmt(s_status, "cam %lu fps%s   fx %lu ms   %s   shots %lu%s",
+                          (unsigned long)frame_pipeline_get_fps(), night ? (night > 1 ? " night 2" : " night") : "",
                           (unsigned long)(frame_pipeline_get_fx_us() / 1000),
                           capture_sd_available() ? "SD ok" : "no SD",
-                          (unsigned long)capture_get_count());
+                          (unsigned long)capture_get_count(), battery_text(bat, sizeof(bat)));
     static int s_tick;
     if (++s_tick % 5 == 0) capture_sd_poll();               /* a card put in after boot */
     /* a minute without input turns the backlight down; recording counts as input */

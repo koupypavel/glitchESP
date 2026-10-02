@@ -17,6 +17,7 @@
 #include "ui_lvgl.h"
 #include "fx_parallel.h"
 #include "capture.h"
+#include "ui_live.h"
 
 static const char *TAG = "pipeline";
 
@@ -414,6 +415,128 @@ static void snapshot(const uint16_t *fb, uint32_t seq, const fp_recipe_t *recipe
     if (s_p.capture_cb) s_p.capture_cb(&snap, s_p.capture_user);
 }
 
+/* ---- low-light denoise ---- */
+
+#define DENOISE_MAX_PX  (640 * 960)     /* the wide mode's frame */
+#define PHOTO_STACK     6               /* camera frames averaged into a night photo */
+
+static struct {
+    uint32_t *buf;                      /* running average of the camera frames */
+    volatile bool on;
+    bool valid;                         /* buf holds a frame of this size */
+    uint32_t w, h, n;
+    int stack;                          /* frames averaged for the photo being taken, 0 = none */
+} s_dn;
+
+void frame_pipeline_set_denoise(bool on)
+{
+    if (on && !s_dn.buf) {
+        s_dn.buf = heap_caps_aligned_alloc(128, DENOISE_MAX_PX * 2, MALLOC_CAP_SPIRAM);
+        if (!s_dn.buf) ESP_LOGW(TAG, "no memory for the low-light denoise");
+    }
+    s_dn.valid = false;
+    s_dn.on = on && s_dn.buf;
+}
+
+bool frame_pipeline_denoise_active(void) { return s_dn.on; }
+
+typedef struct { const uint32_t *cur; uint32_t *acc; uint32_t words; bool first, up; } dn_arg_t;
+
+/* acc = (acc + cur) / 2 per colour channel, two pixels per word. Rounding goes down on one
+ * frame and up on the next, so the average does not drift darker. */
+static void IRAM_ATTR denoise_rows(void *arg, int y0, int y1)
+{
+    const dn_arg_t *a = arg;
+    const uint32_t *c = a->cur + (size_t)y0 * a->words;
+    uint32_t *acc = a->acc + (size_t)y0 * a->words;
+    size_t n = (size_t)(y1 - y0) * a->words;
+    if (a->first) {
+        memcpy(acc, c, n * 4);
+        return;
+    }
+    if (a->up) {
+        for (size_t i = 0; i < n; i++) {
+            uint32_t p = acc[i], q = c[i];
+            acc[i] = (p | q) - (((p ^ q) & 0xF7DEF7DEu) >> 1);
+        }
+    } else {
+        for (size_t i = 0; i < n; i++) {
+            uint32_t p = acc[i], q = c[i];
+            acc[i] = (p & q) + (((p ^ q) & 0xF7DEF7DEu) >> 1);
+        }
+    }
+}
+
+/* For a photo: acc += (cur - acc) / k per colour channel, so after k frames acc is their
+ * mean. The channels have only 5 or 6 bits, so the division is rounded at random (xorshift)
+ * rather than to nearest, which would drop every change smaller than half a step and with
+ * it most of the averaging. */
+typedef struct { uint16_t *acc; const uint16_t *cur; uint32_t w; int32_t wq; uint32_t salt; } stack_arg_t;
+
+static inline int32_t stack_ch(int32_t a, int32_t b, int32_t w, uint32_t r)
+{
+    return a + (((b - a) * w + (int32_t)(r & 0xffff)) >> 16);
+}
+
+static void IRAM_ATTR stack_rows(void *arg, int y0, int y1)
+{
+    const stack_arg_t *s = arg;
+    for (int y = y0; y < y1; y++) {
+        uint16_t *acc = s->acc + (size_t)y * s->w;
+        const uint16_t *cur = s->cur + (size_t)y * s->w;
+        uint32_t r = (s->salt ^ ((uint32_t)y * 0x85ebca6bu)) | 1;
+        for (uint32_t x = 0; x < s->w; x++) {
+            r ^= r << 13; r ^= r >> 17; r ^= r << 5;
+            uint32_t a = acc[x], b = cur[x];
+            int32_t R = stack_ch((int32_t)(a >> 11), (int32_t)(b >> 11), s->wq, r);
+            int32_t G = stack_ch((int32_t)((a >> 5) & 63), (int32_t)((b >> 5) & 63), s->wq, r >> 8);
+            int32_t B = stack_ch((int32_t)(a & 31), (int32_t)(b & 31), s->wq, r >> 16);
+            acc[x] = (uint16_t)((R << 11) | (G << 5) | B);
+        }
+    }
+}
+
+/* Returns the frame to show: the camera's own, or the averaged one. *ready is false while a
+ * night photo is still collecting its frames. */
+static const uint16_t *denoise(const uint16_t *cam, uint32_t w, uint32_t h, bool photo, bool *ready)
+{
+    *ready = true;
+    if (!s_dn.on || w * h > DENOISE_MAX_PX || (w & 1)) {
+        s_dn.valid = false;
+        s_dn.stack = 0;
+        return cam;
+    }
+    bool first = !s_dn.valid || s_dn.w != w || s_dn.h != h;
+    if (photo && !s_dn.stack) {                         /* a photo starts: average from scratch */
+        s_dn.stack = 1;
+        first = true;
+        ui_live_toast("night photo: hold still", 1500);
+    } else if (photo) {
+        s_dn.stack++;
+    } else {
+        s_dn.stack = 0;
+    }
+    if (s_dn.stack > 1) {
+        stack_arg_t a = { (uint16_t *)s_dn.buf, cam, w, (int32_t)(65536 / s_dn.stack), s_dn.n++ * 0x9e3779b9u };
+        fx_parallel_rows(stack_rows, &a, 0, (int)h, (uint16_t *)s_dn.buf, w);
+    } else {
+        dn_arg_t a = { (const uint32_t *)cam, s_dn.buf, w / 2, first, (s_dn.n++ & 1) != 0 };
+        fx_parallel_rows(denoise_rows, &a, 0, (int)h, (uint16_t *)s_dn.buf, w);
+    }
+    if (s_dn.stack) {
+        *ready = s_dn.stack >= PHOTO_STACK;
+        if (*ready) s_dn.stack = 0;
+    }
+    /* this core's half is still in its cache: the scaler on the other core reads it too */
+    uint32_t mid = h / 2;
+    esp_cache_msync((uint8_t *)s_dn.buf + (size_t)mid * w * 2, (size_t)(h - mid) * w * 2,
+                    ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+    s_dn.valid = true;
+    s_dn.w = w;
+    s_dn.h = h;
+    return (const uint16_t *)s_dn.buf;
+}
+
 void frame_pipeline_on_camera_frame(uint8_t *camera_buf, uint8_t cam_idx,
                                     uint32_t cam_w, uint32_t cam_h, size_t camera_buf_len, void *user_data)
 {
@@ -432,7 +555,9 @@ void frame_pipeline_on_camera_frame(uint8_t *camera_buf, uint8_t cam_idx,
     uint32_t zoom_q8 = s_p.zoom_q8;
     view_rect_t view = view_rect(cam_w, cam_h, s_p.view_base_w, zoom_q8);
     bool scaled = view.w != FP_OUT_W || view.h != FP_OUT_H;
-    const uint16_t *cam = (const uint16_t *)camera_buf;
+    bool photo_ready;
+    const uint16_t *cam = denoise((const uint16_t *)camera_buf, cam_w, cam_h,
+                                  s_p.capture_pending && !s_p.capture_with_ui, &photo_ready);
     const uint16_t *cam_px = cam + (size_t)view.y * cam_w + view.x;   /* top-left of the view, stride cam_w */
 
     /* Private copy of the recipe so the UI can change it at any time. */
@@ -505,7 +630,7 @@ void frame_pipeline_on_camera_frame(uint8_t *camera_buf, uint8_t cam_idx,
     app_video_release_frame(cam_idx);
 
     /* Snapshot for capture: the clean frame before the UI is stamped on. */
-    if (s_p.capture_pending && !s_p.capture_with_ui) snapshot(fb, seq, &recipe);
+    if (s_p.capture_pending && !s_p.capture_with_ui && photo_ready) snapshot(fb, seq, &recipe);
 
     int64_t t1 = esp_timer_get_time();
     bool recording = capture_video_active();

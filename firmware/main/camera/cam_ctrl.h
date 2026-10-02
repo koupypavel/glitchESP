@@ -49,6 +49,18 @@ float cam_ctrl_set_zoom(float zoom);
 float cam_ctrl_get_zoom(void);
 
 cam_mode_t cam_ctrl_mode(void);
+
+/*
+ * Low light. In the wide mode the frame time grows in steps when the picture stays too dark
+ * at full exposure and gain: level 1 doubles it (10 fps), level 2 triples it (6.7 fps), each
+ * time with that much more exposure, and the preview is averaged over frames to take the
+ * noise down. It steps back when there is light again. A photo taken at a night level is the
+ * average of several of these frames (hold the camera still, or use a tripod).
+ */
+#define CAM_NIGHT_LEVELS 3
+int cam_ctrl_night_level(void);
+/* -1 = automatic (default), 0..CAM_NIGHT_LEVELS-1 = fixed level */
+void cam_ctrl_set_night(int level);
 const char *cam_ctrl_mode_name(void);      /* for the recipe sidecar */
 
 /*

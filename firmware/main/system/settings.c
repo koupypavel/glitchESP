@@ -4,6 +4,7 @@
 #include "settings.h"
 #include "app_video.h"
 #include "frame_pipeline.h"
+#include "cam_ctrl.h"
 
 static const char *TAG = "settings";
 #define NS "glitch"
@@ -25,6 +26,7 @@ esp_err_t settings_init(void)
         if (nvs_get_u8(h, "sound", &v) == ESP_OK) s_cfg.sound = v;
         if (nvs_get_u8(h, "burst", &v) == ESP_OK && v >= 1 && v <= 10) s_cfg.burst = v;
         if (nvs_get_u8(h, "h264", &v) == ESP_OK) s_cfg.video_h264 = v;
+        if (nvs_get_u8(h, "night", &v) == ESP_OK && v <= 2) s_cfg.low_light = v;
         nvs_close(h);
     }
     ESP_LOGI(TAG, "flip_h=%d flip_v=%d quality=%u jpeg=%u", s_cfg.flip_h, s_cfg.flip_v, s_cfg.quality, s_cfg.jpeg_quality);
@@ -42,10 +44,17 @@ void settings_apply(void)
     frame_pipeline_set_quality((fp_quality_t)s_cfg.quality);
 }
 
+void settings_apply_low_light(void)
+{
+    cam_ctrl_set_night(s_cfg.low_light == 0 ? -1 : (s_cfg.low_light == 1 ? 0 : CAM_NIGHT_LEVELS - 1));
+}
+
 void settings_set(const settings_t *s)
 {
+    bool night_changed = s->low_light != s_cfg.low_light;
     s_cfg = *s;
     settings_apply();
+    if (night_changed) settings_apply_low_light();
     nvs_handle_t h;
     if (nvs_open(NS, NVS_READWRITE, &h) == ESP_OK) {
         nvs_set_u8(h, "flip_h", s_cfg.flip_h);
@@ -58,6 +67,7 @@ void settings_set(const settings_t *s)
         nvs_set_u8(h, "sound", s_cfg.sound);
         nvs_set_u8(h, "burst", s_cfg.burst);
         nvs_set_u8(h, "h264", s_cfg.video_h264);
+        nvs_set_u8(h, "night", s_cfg.low_light);
         nvs_commit(h);
         nvs_close(h);
     }

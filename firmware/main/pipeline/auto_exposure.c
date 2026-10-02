@@ -77,6 +77,24 @@ void auto_exposure_feed(const uint16_t *px, int w, int h, int stride_px)
     s_ae.frame = (uint32_t)s_frame_counter;
     if (s_ae.locked) return;
 
+    /* Trade gain for exposure while exposure has room: the same brightness with less noise.
+     * (Brightening raises exposure first anyway, but when the frame got longer, e.g. at a
+     * night level, the picture can already be on target with the gain high.) */
+    if (s_ae.gain_x16 > 16 && s_ae.exposure_lines + 8 < s_ae.max_exposure_lines) {
+        uint32_t f_q8 = (uint32_t)((uint64_t)s_ae.max_exposure_lines * 256 / s_ae.exposure_lines);
+        uint32_t g_q8 = s_ae.gain_x16 * 256 / 16;
+        if (f_q8 > g_q8) f_q8 = g_q8;
+        if (f_q8 > 320) f_q8 = 320;                 /* at most 1.25x per step */
+        if (f_q8 > 260) {
+            s_ae.exposure_lines = s_ae.exposure_lines * f_q8 / 256;
+            s_ae.gain_x16 = s_ae.gain_x16 * 256 / f_q8;
+            if (s_ae.gain_x16 < 16) s_ae.gain_x16 = 16;
+            ov5647_ctl_set_exposure_lines(s_ae.exposure_lines);
+            ov5647_ctl_set_gain_x16(s_ae.gain_x16);
+            return;
+        }
+    }
+
     uint32_t target = s_ae.target_luma;
     if (luma == 0) luma = 1;
     /* dead band: within 8% of target, do nothing */
@@ -159,6 +177,15 @@ void auto_exposure_set_max_exposure(uint32_t lines)
     if (s_ae.exposure_lines > lines) {
         s_ae.exposure_lines = lines;
         ov5647_ctl_set_exposure_lines(lines);
+    }
+}
+
+void auto_exposure_set_max_gain(uint32_t gain_x16)
+{
+    s_ae.max_gain_x16 = gain_x16 < 16 ? 16 : gain_x16;
+    if (s_ae.gain_x16 > s_ae.max_gain_x16) {
+        s_ae.gain_x16 = s_ae.max_gain_x16;
+        ov5647_ctl_set_gain_x16(s_ae.gain_x16);
     }
 }
 

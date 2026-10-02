@@ -26,6 +26,7 @@
 #include "presets.h"
 #include "settings.h"
 #include "gallery.h"
+#include "battery.h"
 
 static const char *TAG = "remote";
 
@@ -246,6 +247,16 @@ static void handle(char *line)
         auto_exposure_get(&ae);
         printf("ae: frame %lu luma %u rgb %u %u %u expo %lu gain %lu/16\n", (unsigned long)ae.frame, ae.measured_luma,
                ae.mean_r, ae.mean_g, ae.mean_b, (unsigned long)ae.exposure_lines, (unsigned long)ae.gain_x16);
+    } else if (!strcmp(line, "night")) {
+        /* night auto | night 0..2: low-light level (see cam_ctrl.h) */
+        cam_ctrl_set_night(!strcmp(arg, "auto") || !*arg ? -1 : atoi(arg));       /* until the setting changes */
+        printf("night: level %d (%s)\n", cam_ctrl_night_level(), !strcmp(arg, "auto") || !*arg ? "auto" : "fixed");
+    } else if (!strcmp(line, "bat")) {
+        static const char *const k_state[] = { "unknown", "discharging", "charging", "no cell" };
+        battery_info_t b;
+        battery_get(&b);
+        printf("bat: %s, %lu mV (pin %lu mV), %d%%%s%s\n", k_state[b.state], (unsigned long)b.mv,
+               (unsigned long)b.pin_mv, b.percent, b.low ? ", low" : "", b.critical ? ", critical" : "");
     } else if (!strcmp(line, "eject")) {
         capture_sd_eject();                     /* unmount; the next photo mounts the card again */
     } else if (!strcmp(line, "ls")) {
@@ -258,7 +269,7 @@ static void handle(char *line)
         cmd_sdbench();
     } else if (!strcmp(line, "help")) {
         printf("commands: photo | video | dump | stilldump | uidump | zoom [1..6] | fx <id> | amount <0..1> | bar 0/1 | edit [fx]|close | param <fx> <id> <value> | knob <steps>|click|reroll | idle [poke] | recipe | "
-               "preset list|save N|load N|clear N|panel 0/1 | settings 0/1 | set burst|h264|hires|quality <n> | gallery open|close|next|prev|play|look|delete | ae | eject | ls | get <file> | reg <hex> [hex] | tele <x0> <y0> | sdbench\n");
+               "preset list|save N|load N|clear N|panel 0/1 | settings 0/1 | set burst|h264|hires|quality <n> | night auto|0|1|2 | bat | gallery open|close|next|prev|play|look|delete | ae | eject | ls | get <file> | reg <hex> [hex] | tele <x0> <y0> | sdbench\n");
     } else {
         printf("unknown command '%s' (try help)\n", line);
     }

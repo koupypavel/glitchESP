@@ -87,6 +87,10 @@ static const ov5647_reginfo_t k_still[] = {
     R16(0x380e, STILL_VTS),
 };
 #define STILL_BYTES         ((size_t)STILL_W * STILL_H * 2)
+
+/* Low light (see cam_ctrl.h) */
+#define NIGHT_GAIN_PREVIEW  (24 * 16)   /* gain ceiling at the top night level; the averaging hides the rest */
+#define NIGHT_TICKS         3           /* seconds a condition must hold before the level changes */
 #define STILL_BUFS          2
 #define STILL_SET_FRAME     2       /* exposure/gain are written once this frame has arrived */
 #define STILL_KEEP_FRAME    7       /* ...and this one is the photo */
@@ -131,7 +135,12 @@ static struct {
     uint8_t still_wb[6];            /* white-balance gains of the preview (R, G, B; 0x400 = 1x) */
     bool still_wb_valid;
     SemaphoreHandle_t still_done;
-} s_c = { .zoom = CAM_ZOOM_MIN };
+
+    /* low light */
+    int night;                      /* current level */
+    volatile int night_force;       /* -1 automatic */
+    int night_up, night_down;       /* seconds the level change has been due */
+} s_c = { .zoom = CAM_ZOOM_MIN, .night_force = -1 };
 
 static int base_len(const ov5647_reginfo_t *regs, int max)
 {
@@ -173,6 +182,22 @@ static esp_err_t build_tele(void)
     return build_mode(CAM_MODE_TELE, tele, sizeof(tele) / sizeof(tele[0]), TELE_W, TELE_H);
 }
 
+/* Change a mode's frame length (lines) in its register table. */
+static void set_mode_vts(int m, uint32_t vts)
+{
+    if (vts > 0xffff) vts = 0xffff;
+    for (ov5647_reginfo_t *r = s_mode[m].regs; r && r->reg != REG_END; r++) {
+        if (r->reg == 0x380e) r->val = (uint8_t)(vts >> 8);
+        if (r->reg == 0x380f) r->val = (uint8_t)(vts & 0xff);
+    }
+    s_mode[m].vts = vts;
+}
+
+static uint32_t night_gain_cap(int level)
+{
+    return level >= CAM_NIGHT_LEVELS - 1 ? NIGHT_GAIN_PREVIEW : 16 * 16;
+}
+
 /* Program a sensor mode and hand the driver `n` buffers of `len` bytes from the block. */
 static esp_err_t program(int m, int n, size_t len)
 {
@@ -187,6 +212,11 @@ static esp_err_t program(int m, int n, size_t len)
 /* Stream must be stopped. */
 static esp_err_t apply_mode(cam_mode_t m, cam_mode_t from)
 {
+    /* the night level lengthens the wide mode's frames; the others keep theirs */
+    int level = m == CAM_MODE_WIDE ? s_c.night : 0;
+    if (m == CAM_MODE_WIDE) set_mode_vts(CAM_MODE_WIDE, WIDE_VTS * (uint32_t)(1 + level));
+    auto_exposure_set_max_gain(night_gain_cap(level));
+    frame_pipeline_set_denoise(level > 0);
     ESP_RETURN_ON_ERROR(program(m, s_c.preview_bufs, s_c.preview_buf_len), TAG, "mode");
     /* same exposure time in the new mode: lines scale with the line length */
     auto_exposure_restart(OV5647_EXPO_MAX(s_mode[m].vts), s_mode[from].hts, s_mode[m].hts,
@@ -331,11 +361,51 @@ static void take_still(bool dump)
     ESP_LOGI(TAG, "still done in %lld ms", (long long)((esp_timer_get_time() - t0) / 1000));
 }
 
+/* Once a second: should the wide mode's frames get longer, or shorter again? */
+static void night_tick(void)
+{
+    if (s_c.paused || s_c.still_request || s_c.mode != CAM_MODE_WIDE || capture_video_active() || capture_busy()) {
+        s_c.night_up = s_c.night_down = 0;
+        return;
+    }
+    int want = s_c.night_force;
+    if (want < 0) {
+        ae_state_t ae;
+        auto_exposure_get(&ae);
+        if (ae.frame < 30) return;                      /* still settling after a restart */
+        uint32_t t = ae.target_luma, l = ae.measured_luma;
+        bool starved = ae.exposure_lines + 16 >= ae.max_exposure_lines && ae.gain_x16 >= ae.max_gain_x16 &&
+                       l * 100 < t * 80;
+        /* could the level below give this brightness with half of its exposure x gain to spare? */
+        bool plenty = false;
+        if (s_c.night > 0 && l * 100 > t * 75) {
+            uint64_t now = (uint64_t)ae.exposure_lines * ae.gain_x16;
+            uint64_t below = (uint64_t)OV5647_EXPO_MAX(WIDE_VTS * (uint32_t)s_c.night) * night_gain_cap(s_c.night - 1);
+            plenty = now * 2 < below;
+        }
+        s_c.night_up = starved ? s_c.night_up + 1 : 0;
+        s_c.night_down = plenty ? s_c.night_down + 1 : 0;
+        want = s_c.night;
+        if (s_c.night_up >= NIGHT_TICKS && s_c.night < CAM_NIGHT_LEVELS - 1) want++;
+        if (s_c.night_down >= NIGHT_TICKS && s_c.night > 0) want--;
+    }
+    if (want == s_c.night) return;
+    s_c.night_up = s_c.night_down = 0;
+    ESP_LOGI(TAG, "night level %d -> %d", s_c.night, want);
+    s_c.night = want;
+    switch_mode(CAM_MODE_WIDE);
+}
+
 static void cam_task(void *arg)
 {
     (void)arg;
     for (;;) {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        if (!ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000))) {
+            s_c.busy = true;
+            night_tick();
+            s_c.busy = false;
+            continue;
+        }
         if (s_c.paused) continue;                       /* resume() picks the mode for the zoom */
         s_c.busy = true;
         if (s_c.still_request) {
@@ -409,13 +479,22 @@ float cam_ctrl_set_zoom(float zoom)
 }
 
 float cam_ctrl_get_zoom(void)          { return s_c.zoom; }
+int cam_ctrl_night_level(void)         { return s_c.mode == CAM_MODE_WIDE ? s_c.night : 0; }
+
+void cam_ctrl_set_night(int level)
+{
+    s_c.night_force = level < 0 ? -1 : (level >= CAM_NIGHT_LEVELS ? CAM_NIGHT_LEVELS - 1 : level);
+    s_c.night_up = s_c.night_down = 0;
+}
 cam_mode_t cam_ctrl_mode(void)         { return s_c.mode; }
 const char *cam_ctrl_mode_name(void)   { return s_mode[s_c.still_request ? MODE_STILL : s_c.mode].name; }
 
 bool cam_ctrl_still_available(void)
 {
+    /* not at a night level: there the binned frames collect twice the light per pixel, and
+     * the photo averages several of them (frame_pipeline.c) */
     return s_c.task && !s_c.paused && s_c.mode == CAM_MODE_WIDE && s_c.zoom < CAM_ZOOM_MIN + 0.01f &&
-           !frame_pipeline_chain_is_temporal();
+           !frame_pipeline_chain_is_temporal() && s_c.night == 0;
 }
 
 esp_err_t cam_ctrl_take_still(bool dump, int shots)

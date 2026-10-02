@@ -30,6 +30,7 @@
 #include "gallery.h"
 #include "presets.h"
 #include "sound.h"
+#include "battery.h"
 
 #define GLITCH_BENCH 0          /* 1 = run main/bench.c after boot (effect timings, test shot) */
 void bench_start(void);
@@ -203,6 +204,7 @@ void app_main(void)
     ESP_ERROR_CHECK(app_video_register_frame_operation_cb(frame_pipeline_on_camera_frame));
     ESP_ERROR_CHECK(cam_ctrl_init(cam_fd, cam_block, cam_buf_len, FP_CAM_BUFS));
     ESP_ERROR_CHECK(cam_ctrl_start());                                /* camera + pipeline on core 1 */
+    settings_apply_low_light();
 
     /* Shutter */
     const buttons_handlers_t handlers = {
@@ -211,6 +213,7 @@ void app_main(void)
     };
     ESP_ERROR_CHECK(buttons_init(&handlers));
     if (sound_init() != ESP_OK) ESP_LOGW(TAG, "no sound");
+    if (battery_init() != ESP_OK) ESP_LOGW(TAG, "no battery measurement");
     capture_set_shot_cb(on_burst_shot);
     ESP_ERROR_CHECK(remote_init(on_shutter, on_video, NULL));   /* same actions over the serial port */
 

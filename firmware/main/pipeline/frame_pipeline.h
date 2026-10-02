@@ -77,7 +77,13 @@ void frame_pipeline_capture_with_ui(bool with_ui);
 void frame_pipeline_set_recipe(const fp_recipe_t *r);     /* chain with its parameters, amount, seed (presets) */
 void frame_pipeline_set_chain(const fx_chain_t *chain);   /* replaces the chain, keeps amount/seed */
 void frame_pipeline_get_recipe(fp_recipe_t *out);        /* frame_no = the frame on screen */
-bool frame_pipeline_chain_is_temporal(void);              /* an active effect needs the previous frame */
+bool frame_pipeline_chain_is_temporal(void);
+
+/* Low light: average each camera frame with the previous result before anything else, which
+ * takes the visible noise down (moving things leave a short trail). Call from a task, not
+ * from the frame callback: the first call allocates a buffer the size of a wide-mode frame. */
+void frame_pipeline_set_denoise(bool on);
+bool frame_pipeline_denoise_active(void);              /* an active effect needs the previous frame */
 void frame_pipeline_set_amount(float amount);             /* re-maps every slot via from_amount */
 bool frame_pipeline_set_param(const fx_desc_t *fx, int index, float value);   /* one parameter of an active effect */
 void frame_pipeline_set_seed(uint32_t seed);

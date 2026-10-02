@@ -19,12 +19,14 @@ typedef struct {
     bool sound;           /* shutter click and recording beeps */
     uint8_t burst;        /* photos per press: 1, 3, 5 or 10 */
     bool video_h264;      /* record H.264 in an MP4 file instead of Motion-JPEG in an AVI */
+    uint8_t low_light;    /* 0 auto, 1 off, 2 always (longest frames): see cam_ctrl.h */
 } settings_t;
 
 esp_err_t settings_init(void);            /* load from NVS (defaults if absent) */
 const settings_t *settings_get(void);
 void settings_set(const settings_t *s);   /* store + apply to camera/pipeline */
 void settings_apply(void);                /* push current values to the hardware */
+void settings_apply_low_light(void);      /* the low-light choice, once the camera runs */
 
 #ifdef __cplusplus
 }

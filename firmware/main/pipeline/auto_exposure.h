@@ -41,6 +41,7 @@ void auto_exposure_restart(uint32_t max_exposure_lines, uint32_t num, uint32_t d
  * and held for the first frames after auto_exposure_restart(). False if none are known yet. */
 bool auto_exposure_read_wb(uint8_t gains[6]);
 void auto_exposure_set_max_exposure(uint32_t lines);
+void auto_exposure_set_max_gain(uint32_t gain_x16);
 void auto_exposure_set_locked(bool locked);
 void auto_exposure_get(ae_state_t *out);
 
