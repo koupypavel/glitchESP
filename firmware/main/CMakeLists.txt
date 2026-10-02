@@ -38,7 +38,10 @@ set(srcs
     "effects/fx_vhs.c"
     "effects/fx_slitscan.c"
     "effects/fx_databend.c"
-    "effects/fx_squint.c")
+    "effects/fx_squint.c"
+    "effects/fx_starburst.c"
+    "effects/fx_lighttrails.c"
+    "effects/fx_neon.c")
 
 idf_component_register(SRCS "${srcs}"
                        INCLUDE_DIRS "." "camera" "pipeline" "storage" "ui" "input" "effects" "display" "system")

@@ -28,7 +28,8 @@ static const char *TAG = "ui_live";
 static lv_obj_t *s_status;
 static lv_obj_t *s_toast;
 static lv_obj_t *s_slider;
-static lv_obj_t *s_chip[16];
+#define MAX_CHIPS   32
+static lv_obj_t *s_chip[MAX_CHIPS];
 static lv_timer_t *s_toast_timer;
 static lv_obj_t *s_settings;   /* modal panel, NULL when closed */
 static lv_obj_t *s_zoom_label;
@@ -66,7 +67,7 @@ static void rebuild_chain(void)
     frame_pipeline_get_recipe(&cur);
     next = cur;
     fx_chain_clear(&next.chain);
-    for (int i = 0; i < fx_registry_count() && i < 16; i++) {
+    for (int i = 0; i < fx_registry_count() && i < MAX_CHIPS; i++) {
         if (!s_chip[i] || !lv_obj_has_state(s_chip[i], LV_STATE_CHECKED)) continue;
         const fx_desc_t *fx = fx_registry_get(i);
         int slot = fx_chain_add(&next.chain, fx);
@@ -89,7 +90,7 @@ static void rebuild_chain(void)
 static int chips_checked(void)
 {
     int n = 0;
-    for (int i = 0; i < fx_registry_count() && i < 16; i++) {
+    for (int i = 0; i < fx_registry_count() && i < MAX_CHIPS; i++) {
         if (s_chip[i] && lv_obj_has_state(s_chip[i], LV_STATE_CHECKED)) n++;
     }
     return n;
@@ -103,7 +104,7 @@ static bool chip_over_limit(lv_obj_t *chip)
     const char *why = NULL;
     if (chips_checked() > FX_CHAIN_MAX) why = "max 3 effects";
     int temporal = 0, mine = -1;
-    for (int i = 0; i < fx_registry_count() && i < 16; i++) {
+    for (int i = 0; i < fx_registry_count() && i < MAX_CHIPS; i++) {
         if (s_chip[i] == chip) mine = i;
         if (s_chip[i] && lv_obj_has_state(s_chip[i], LV_STATE_CHECKED) && fx_registry_get(i)->temporal) temporal++;
     }
@@ -147,7 +148,7 @@ static void reroll_event_cb(lv_event_t *e)
 /* Make the chips and the slider show `r`, and hand it to the pipeline as it is. */
 static void apply_recipe(const fp_recipe_t *r)
 {
-    for (int i = 0; i < fx_registry_count() && i < 16; i++) {
+    for (int i = 0; i < fx_registry_count() && i < MAX_CHIPS; i++) {
         if (!s_chip[i]) continue;
         bool on = false;
         for (int k = 0; k < r->chain.count; k++) {
@@ -499,7 +500,7 @@ static void settings_open_cb(lv_event_t *e)
 #define BAR_PAD     12
 #define CHIP_COLS   4
 #define CHIP_GAP    8
-#define CHIP_W      ((FP_OUT_W - 2 * BAR_PAD - (CHIP_COLS - 1) * CHIP_GAP) / CHIP_COLS)
+#define CHIP_W      ((FP_OUT_W - 2 * BAR_PAD - 10 - (CHIP_COLS - 1) * CHIP_GAP) / CHIP_COLS)
 #define CHIP_H      56
 #define CHIP_ROWS   4
 #define CHIP_ROWS_H (CHIP_ROWS * CHIP_H + (CHIP_ROWS - 1) * CHIP_GAP)
@@ -569,7 +570,8 @@ static void create_control_bar(lv_obj_t *parent)
     lv_obj_set_style_pad_all(bar, BAR_PAD, 0);
     lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* effect chips: a fixed grid, so every chip is the same comfortable size */
+    /* effect chips: a fixed grid, so every chip is the same comfortable size. Four rows are
+     * visible; with more effects than that the grid scrolls, a row at a time. */
     lv_obj_t *row = lv_obj_create(bar);
     lv_obj_set_size(row, LV_PCT(100), CHIP_ROWS_H);
     lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 0);
@@ -581,9 +583,14 @@ static void create_control_bar(lv_obj_t *parent)
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_column(row, CHIP_GAP, 0);
     lv_obj_set_style_pad_row(row, CHIP_GAP, 0);
-    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(row, LV_DIR_VER);
+    lv_obj_set_scroll_snap_y(row, LV_SCROLL_SNAP_START);
+    lv_obj_set_scrollbar_mode(row, fx_registry_count() > CHIP_ROWS * CHIP_COLS ? LV_SCROLLBAR_MODE_ON : LV_SCROLLBAR_MODE_OFF);
+    lv_obj_set_style_bg_color(row, lv_color_hex(0xE0007A), LV_PART_SCROLLBAR);
+    lv_obj_set_style_width(row, 6, LV_PART_SCROLLBAR);
+    lv_obj_set_style_pad_right(row, 10, 0);                 /* room for the scroll bar */
 
-    for (int i = 0; i < fx_registry_count() && i < CHIP_ROWS * CHIP_COLS; i++) {
+    for (int i = 0; i < fx_registry_count() && i < MAX_CHIPS; i++) {
         const fx_desc_t *fx = fx_registry_get(i);
         lv_obj_t *b = lv_button_create(row);
         lv_obj_add_flag(b, LV_OBJ_FLAG_CHECKABLE);
@@ -717,7 +724,7 @@ bool ui_live_toggle_effect(const char *id)
 {
     bool ok = false;
     if (!ui_lvgl_lock(200)) return false;
-    for (int i = 0; i < fx_registry_count() && i < 16; i++) {
+    for (int i = 0; i < fx_registry_count() && i < MAX_CHIPS; i++) {
         if (!s_chip[i] || strcmp(fx_registry_get(i)->id, id) != 0) continue;
         bool turn_on = !lv_obj_has_state(s_chip[i], LV_STATE_CHECKED);
         if (turn_on) lv_obj_add_state(s_chip[i], LV_STATE_CHECKED);

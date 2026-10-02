@@ -208,6 +208,33 @@ see coherently, hence `fx_mem_publish()` / `fx_mem_fetch()` around it. Everythin
 happens once per 2x2 block; the blur hides that. It also declares `FX_COST_SOFT`, so the
 preview always runs it at half resolution: full resolution adds nothing to a blur.
 
+### Night set
+
+Made for dark scenes with a few bright lights, where most other effects have little to
+work with.
+
+**Starburst** (`fx_starburst.c`). The star filter: every light sends out four or eight
+rays in its own colour. `analyze()` marks the highlights on a grid (one cell per 6 pixels),
+then drags them into streaks with a decaying maximum along each ray direction. All
+directions are done in two passes down and up the grid, a row at a time, working on copies
+of the row in on-chip memory; cells with neither a ray nor a light are skipped four at a
+time, so a night scene costs much less than a bright room. `apply()` interpolates the ray
+map and adds it, copying rows no ray reaches. Measured in a bright room, half-resolution
+preview: 90 ms per frame with eight rays (9 fps), the worst case.
+
+**Light trails** (`fx_lighttrails.c`). Temporal. Like Tracers, but only light leaves a
+trail: the faded previous output is kept where it is brighter than the live picture and
+above a threshold, so the dark parts of the scene stay sharp and current. The trail's
+blue fades first and its red last, so it cools from white to orange to red. 63 ms (12 fps).
+
+**Neon** (`fx_neon.c`). Edges glow in a slowly turning rainbow over the darkened picture.
+Edge strength is the brightness difference across two pixels horizontally plus
+vertically; the three rows of brightness needed per output row are kept in a small ring
+so each input row is converted once. 74 ms (11 fps).
+
+Starburst and Neon declare `FX_COST_SOFT` like Squint: preview at half resolution, photos
+at full.
+
 Not yet built: visual haze/glow (blend with a blurred low-resolution copy), environmental
 orbism (radial block displacement), melting (feedback warp that accumulates).
 

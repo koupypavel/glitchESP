@@ -25,7 +25,7 @@ extern "C" {
 #define FX_COST_LIGHT   1     /* ~1 memcpy pass (scanline, wave) */
 #define FX_COST_MEDIUM  2     /* 1-2 per-pixel passes (blocks) */
 #define FX_COST_HEAVY   3     /* multi-tap per-pixel or sorting (chanshift, bitcrush, pixelsort) */
-#define FX_COST_SOFT    5     /* a blur: full resolution adds nothing, so always preview at half (squint) */
+#define FX_COST_SOFT    5     /* full resolution adds little to the preview (blurs, glows): always at half (squint, starburst, neon); photos are still rendered at full resolution */
 
 /*
  * On the ESP32-P4 this firmware executes code from PSRAM (XIP). Effect inner loops must live

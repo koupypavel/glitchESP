@@ -22,10 +22,18 @@ live, the shutter burns the effect into the saved photo or video, and every shot
 ## What it does
 
 - **Live preview** at about 20 fps (10 to 18 fps with effects, depending on the chain), with
-  up to three effects chained. Sixteen effects so far:
+  up to three effects chained. Nineteen effects so far:
   channel shift, scanline smear, bit crush, blocks, wave, pixel sort, tracers, hue drift,
-  kaleido, diffraction, drift, breathe, VHS, slit scan, databend and squint (a painter's
-  squint: blur away the detail, keep the big shapes of light and shadow).
+  kaleido, diffraction, drift, breathe, VHS, slit scan, databend, squint (a painter's
+  squint: blur away the detail, keep the big shapes of light and shadow), and three made
+  for the night: starburst (rays from every light), light trails (moving lights leave
+  glowing trails) and neon (glowing outlines on a dark picture).
+- **Low light**: when it gets dark the camera slows down by itself, from 20 to 10 and then
+  7 frames a second, to expose two and three times longer, and averages frames to take the
+  noise down. A photo taken then is the average of six frames: hold still or use the tripod
+  thread.
+- **Battery level** on the status line, a warning at 10 %, and a recording is closed
+  properly before the battery runs out.
 - **One knob for "how broken".** An amount slider drives every active effect through its own
   mapping; a seed button re-rolls the randomness. Every parameter can also be set by hand.
 - **Photos**: hardware JPEG saved as `GLITCH/IMG_nnnn.jpg` with a `.json` sidecar listing
@@ -113,9 +121,7 @@ python -m esptool --chip esp32p4 -p COM10 -b 460800 write_flash @flash_args
 [`hardware/enclosure`](hardware/enclosure) has a printable case with a battery bay, a
 speaker pocket, openings for every port and button, a shutter switch, a rotary encoder,
 a tripod thread and an adjustable lens hood, as STL files and as the CadQuery script that
-generates them. The first version has been printed and fitted; the current one (version 4)
-has a bigger speaker pocket, a tactile-switch shutter on the left side and the tripod
-mount.
+generates them. The current version (4) has been printed and is in use.
 
 ![enclosure](hardware/enclosure/img/back.png)
 
@@ -172,15 +178,20 @@ what was learned about performance on the ESP32-P4.
 
 ## Status
 
-Working on the device (ESP32-P4 revision v1.3): preview, all sixteen effects on both cores,
+Working on the device (ESP32-P4 revision v1.3): preview, all nineteen effects on both cores,
 parameter editing, presets, zoom, settings, photos (including full-resolution stills and
-bursts), video (Motion-JPEG and H.264) saved to the card, and the gallery.
+bursts), video (Motion-JPEG and H.264) saved to the card, the gallery, the battery level
+and the low-light mode. The low-light mode and the three night effects were tried indoors
+only, not yet outside at night.
 
 ## To do
 
 Waiting for hardware or a test:
 
-- [ ] Battery indicator (the board measures the battery on GPIO20; no battery here yet)
+- [ ] Try the low-light mode and the night effects outside at night; tune the levels
+- [ ] Battery: the percentage comes from a typical LiPo curve, check it against a full
+      discharge; the board has no charging signal, so "+" (charging) is a guess from the
+      voltage rising
 - [ ] Try the wired controls on the header with real switches and an encoder
 - [ ] Build and try the `rev3_x` profile on a revision 3.x board; add it to the workflow
 - [ ] Flash the single merged release image to a board (so far it has only been compared,
@@ -219,8 +230,7 @@ Connectivity:
 Project:
 
 - [ ] Photos and a video from the device in this README (the samples above are PC renders)
-- [ ] Print and fit version 4 of the enclosure in [`hardware/enclosure`](hardware/enclosure)
-      (version 1 fitted except the speaker); lanyard eye
+- [ ] Enclosure ([`hardware/enclosure`](hardware/enclosure), printed and in use): lanyard eye
 
 ## License
 

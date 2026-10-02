@@ -152,6 +152,7 @@ checked from a PC:
 photo | video | dump | stilldump | uidump | zoom [1..6] | fx <id> | amount <0..1>
 bar 0/1 | knob <steps>|click|reroll | idle [poke] | eject | edit [fx]|close | param <fx> <param> <value>
 recipe | preset list|save N|load N|clear N|panel 0/1 | settings 0/1 | set burst|h264|hires|quality <n> | ae
+night auto|0|1|2 | bat
 gallery open|close|next|prev|play|look|delete
 ls | get <file> | reg <hex> [hex] | tele <x0> <y0> | sdbench | help
 ```
@@ -164,6 +165,38 @@ into files (run them with the ESP-IDF python environment):
 python serial_capture.py COM10 30 --out run.log 5:dump 20:"zoom 1.5" 22:photo 25:ls
 python decode_jpeg_dump.py run.log frame.jpg
 ```
+
+## Low light
+
+The wide mode's frame time is a register away from being longer, and a longer frame allows
+a longer exposure. `cam_ctrl.c` checks once a second: if exposure and gain are both at
+their limit and the picture is still more than 20 % under target for three seconds, the
+frame gets twice as long (10 fps, 100 ms exposure), then three times (6.7 fps, 150 ms, and
+the gain limit goes from 16x to 24x). It steps back when the level below could deliver the
+same brightness with half its range to spare. Auto exposure prefers exposure over gain, so
+a longer frame is used to bring the gain down first.
+
+At a night level every camera frame is averaged with the result before it
+(`frame_pipeline.c`, two pixels per word), which takes the noise of the high gain down and
+leaves a short trail behind moving things. A photo averages six frames exactly (running
+mean with random rounding, because a 5-bit channel would otherwise lose every change
+smaller than half a step). Full-resolution stills are not used at night: the binned mode
+collects twice the light per pixel. The zoomed-in mode has no night levels.
+
+Settings: "Low light" Auto, Off, Always (the longest frames). The status line shows
+"night" or "night 2". Serial: `night auto|0|1|2`.
+
+Not measured outside at night yet: the levels were forced and checked indoors.
+
+## Battery
+
+`system/battery.c` reads GPIO20 every two seconds: the board divides the cell voltage by
+three (measured: 1.396 V at the pin for a cell at 4.19 V). The reading is smoothed and
+mapped to a percentage with a typical LiPo discharge curve. The board has no signal for
+"USB connected" or "charging", so charging is inferred: the voltage rising over a minute,
+or held above 4.23 V. A full cell on USB therefore shows 100 % without the "+".
+At 10 % a warning appears once; under 3.4 V a running recording is stopped so that its
+file gets closed properly. Serial: `bat`.
 
 ## Small things
 

@@ -4,7 +4,7 @@ A printable case for the glitchESP camera: the Waveshare ESP32-P4-WIFI6-Touch-LC
 kit camera, a flat LiPo cell, a small speaker, a 12 × 12 mm tactile switch as the shutter,
 a rotary encoder and a tripod thread.
 
-**Version 4, not printed yet.** Version 1 was printed: the display unit, the openings, the
+**Version 4, printed and in use:** the board, speaker, shutter switch and battery fit and work. Version 1 was printed: the display unit, the openings, the
 board's buttons, the screws, the lens hood and the battery plate fitted; the speaker
 (26 × 26 × 5 mm) did not. Version 2 made room for the speaker (case 2.2 mm thicker) and
 moved the shutter to the right side. Version 3 takes a TC-1212T tactile switch as the

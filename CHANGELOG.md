@@ -2,6 +2,16 @@
 
 Each release has a section here; the GitHub release notes are taken from it.
 
+## Unreleased
+
+- Three effects for the night: starburst, light trails, neon. The effect buttons now scroll.
+- Low-light mode: longer frames (10 and 6.7 fps) with two and three times the exposure when
+  it is dark, frames averaged against noise, night photos averaged from six frames. Setting
+  "Low light": Auto, Off, Always.
+- Battery level on the status line, low-battery warning, recordings closed before the
+  battery is empty.
+- Enclosure in `hardware/enclosure` (printed and in use).
+
 ## [0.1.0] - 2026-10-01
 
 First release. Built for the Waveshare ESP32-P4-WIFI6-Touch-LCD-5 with an OV5647 camera,
