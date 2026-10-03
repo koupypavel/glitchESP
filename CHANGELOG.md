@@ -2,6 +2,10 @@
 
 Each release has a section here; the GitHub release notes are taken from it.
 
+## Unreleased
+
+- Van Gogh effect: the picture redrawn in thick, directed brush strokes.
+
 ## [0.2.0] - 2026-10-03
 
 Built for the same board as 0.1.0 (ESP32-P4 revision v1.x, `rev1_3` profile, ESP-IDF

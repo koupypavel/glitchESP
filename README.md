@@ -21,6 +21,10 @@ Photos straight from the camera, one scene through different effects:
 |---|---|---|---|
 | ![databend](docs/photos/car_databend.jpg) | ![blocks, bit crush, pixel sort](docs/photos/car_blocks_sort.jpg) | ![squint](docs/photos/car_squint.jpg) | ![tracers, hue drift, drift](docs/photos/car_tracers_drift.jpg) |
 
+| Van Gogh |
+|---|
+| ![van gogh](docs/photos/vangogh.jpg) |
+
 At night:
 
 | Channel shift | Tracers + hue drift + drift | VHS + light trails |
@@ -42,11 +46,12 @@ Kaleido at night:
 ## What it does
 
 - **Live preview** at about 20 fps (10 to 18 fps with effects, depending on the chain), with
-  up to three effects chained. Twenty effects so far:
+  up to three effects chained. Twenty-one effects so far:
   channel shift, scanline smear, bit crush, blocks, wave, pixel sort, tracers, hue drift,
   kaleido, diffraction, drift, breathe, VHS, slit scan, databend, palette (a handful of
   fixed colours with a line dither, seven palettes from acid to Game Boy), squint (a
-  painter's squint: blur away the detail, keep the big shapes of light and shadow), and three made
+  painter's squint: blur away the detail, keep the big shapes of light and shadow), Van Gogh
+  (the picture redrawn in thick, directed brush strokes that swirl where it is flat), and three made
   for the night: starburst (rays from every light), light trails (moving lights leave
   glowing trails) and neon (glowing outlines on a dark picture).
 - **Low light**: when it gets dark the camera slows down by itself, from 20 to 10 and then
@@ -228,7 +233,7 @@ what was learned about performance on the ESP32-P4.
 
 ## Status
 
-Working on the device (ESP32-P4 revision v1.3): preview, all twenty effects on both cores,
+Working on the device (ESP32-P4 revision v1.3): preview, all twenty-one effects on both cores,
 parameter editing, presets, zoom, settings, photos (including full-resolution stills and
 bursts), video (Motion-JPEG and H.264) saved to the card, the gallery, the battery level
 and the low-light mode. The low-light mode and the three night effects were tried indoors

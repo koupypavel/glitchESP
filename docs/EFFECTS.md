@@ -222,6 +222,20 @@ see coherently, hence `fx_mem_publish()` / `fx_mem_fetch()` around it. Everythin
 happens once per 2x2 block; the blur hides that. It also declares `FX_COST_SOFT`, so the
 preview always runs it at half resolution: full resolution adds nothing to a blur.
 
+**Van Gogh** (`fx_vangogh.c`). The picture redrawn in short, thick brush strokes. Not a
+neural style transfer but a painter's recipe: one dab per small cell in that cell's average
+colour (pushed, and every dab a little off its neighbours), longer than wide, laid along
+the edges of what it paints; where the picture is flat the strokes fall into slow swirls
+around a few centres, the Starry Night sky. Each stroke has a lit flank, a shaded flank
+and a dark rim, which reads as thick paint. `analyze()` averages the frame into cells on
+both cores and turns each into a stroke record (centre, direction from the brightness
+gradient blended with the swirl field, four ready shades); `apply()` paints the strokes
+as overlapping ellipses row by row, in two layers, solving for the span where the row
+cuts each ellipse. The stroke positions come from the seed alone, so the paint does not
+boil; the swirl centres drift with the frame number, which makes flat areas turn slowly.
+104 ms (9 fps) at the default stroke size, 80 ms (12 fps) with large strokes; a first
+version that searched the nearest stroke for every pixel took 312 ms.
+
 ### Night set
 
 Made for dark scenes with a few bright lights, where most other effects have little to
