@@ -2,9 +2,29 @@
 
 Each release has a section here; the GitHub release notes are taken from it.
 
-## Unreleased
+## [0.3.0] - 2026-10-03
 
-- Van Gogh effect: the picture redrawn in thick, directed brush strokes.
+Built for the same board as before (ESP32-P4 revision v1.x, `rev1_3` profile, ESP-IDF
+v5.5.5) and tried on a revision v1.3 board.
+
+**New**
+
+- Van Gogh effect, the twenty-first: the picture redrawn in thick, directed brush strokes
+  that follow the edges of what they paint and fall into slow swirls where it is flat.
+  9 fps at the default stroke size, 12 fps with large strokes.
+- The README shows photos and video clips taken with the camera, and the printed case.
+
+**Known limits**
+
+- Van Gogh was tried in the preview; a full-resolution photo and a video with it were not.
+- The limits listed for 0.2.0 still apply.
+
+**Installing**
+
+Write `glitchesp-v0.3.0-rev1_3-merged.bin` to address 0 with esptool (this also resets the
+settings and presets), or flash the three images from the `parts` archive with
+`esptool.py --chip esp32p4 write_flash @flash_args` to keep them. See "Install a release"
+in the README.
 
 ## [0.2.0] - 2026-10-03
 
