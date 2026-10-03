@@ -23,7 +23,7 @@ Photos straight from the camera, one scene through different effects:
 
 | Van Gogh |
 |---|
-| ![van gogh](docs/photos/vangogh.jpg) |
+| <img src="docs/photos/vangogh.jpg" alt="van gogh" width="200"> |
 
 At night:
 
