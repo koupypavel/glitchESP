@@ -33,6 +33,12 @@ Video recorded on the camera (clips of 7 to 9 seconds, scaled down):
 |---|---|---|
 | ![drift and breathe](docs/photos/video_drift_breathe.gif) | ![kaleido](docs/photos/video_kaleido.gif) | ![hue drift and drift at night](docs/photos/video_night_hue_drift.gif) |
 
+Kaleido at night:
+
+| | | |
+|---|---|---|
+| ![kaleido at night](docs/photos/video_kaleido_night_1.gif) | ![kaleido at night](docs/photos/video_kaleido_night_2.gif) | ![kaleido at night](docs/photos/video_kaleido_night_3.gif) |
+
 More effects, rendered by the PC harness on synthetic test scenes:
 
 | Channel shift | Kaleido | Drift | Diffraction |
