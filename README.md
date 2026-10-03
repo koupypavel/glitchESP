@@ -39,16 +39,6 @@ Kaleido at night:
 |---|---|---|
 | ![kaleido at night](docs/photos/video_kaleido_night_1.gif) | ![kaleido at night](docs/photos/video_kaleido_night_2.gif) | ![kaleido at night](docs/photos/video_kaleido_night_3.gif) |
 
-More effects, rendered by the PC harness on synthetic test scenes:
-
-| Channel shift | Kaleido | Drift | Diffraction |
-|---|---|---|---|
-| ![channel shift](tools/fxlab/samples/out_chanshift.png) | ![kaleido](tools/fxlab/samples/out_kaleido.png) | ![drift](tools/fxlab/samples/out_drift.png) | ![diffraction](tools/fxlab/samples/out_diffract.png) |
-
-| VHS | Databend | Palette | Squint |
-|---|---|---|---|
-| ![VHS](tools/fxlab/samples/out_vhs.png) | ![databend](tools/fxlab/samples/out_databend.png) | ![palette](tools/fxlab/samples/out_palette.png) | ![squint](tools/fxlab/samples/out_squint.png) |
-
 ## What it does
 
 - **Live preview** at about 20 fps (10 to 18 fps with effects, depending on the chain), with
