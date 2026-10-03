@@ -23,6 +23,11 @@ void sd_card_unmount(void);
 bool sd_card_mounted(void);
 const sdmmc_card_t *sd_card_info(void);     /* NULL when not mounted */
 
+/* The card as raw sectors, without a file system, for USB storage mode. Only while it is
+ * not mounted; mount() fails until close_raw(). */
+esp_err_t sd_card_open_raw(sdmmc_card_t **card);
+void sd_card_close_raw(void);
+
 #ifdef __cplusplus
 }
 #endif

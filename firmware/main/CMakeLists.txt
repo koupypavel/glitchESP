@@ -12,6 +12,7 @@ set(srcs
     "storage/mp4_writer.c"
     "storage/sd_writer.c"
     "storage/sd_card.c"
+    "storage/usb_storage.c"
     "ui/ui_live.c"
     "ui/gallery.c"
     "ui/ui_editor.c"

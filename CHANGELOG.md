@@ -6,6 +6,8 @@ Each release has a section here; the GitHub release notes are taken from it.
 
 - Three effects for the night: starburst, light trails, neon. The effect buttons now scroll.
 - Palette effect: four to six fixed colours with a line dither, seven palettes.
+- USB storage mode: the SD card as a USB drive on the OTG port (Settings, "USB storage").
+  Not tried with a computer yet.
 - Low-light mode: longer frames (10 and 6.7 fps) with two and three times the exposure when
   it is dark, frames averaged against noise, night photos averaged from six frames. Setting
   "Low light": Auto, Off, Always.

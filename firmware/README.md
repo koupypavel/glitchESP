@@ -150,7 +150,7 @@ checked from a PC:
 
 ```
 photo | video | dump | stilldump | uidump | zoom [1..6] | fx <id> | amount <0..1>
-bar 0/1 | knob <steps>|click|reroll | idle [poke] | eject | edit [fx]|close | param <fx> <param> <value>
+bar 0/1 | knob <steps>|click|reroll | idle [poke] | eject | usb [on|off] | edit [fx]|close | param <fx> <param> <value>
 recipe | preset list|save N|load N|clear N|panel 0/1 | settings 0/1 | set burst|h264|hires|quality <n> | ae
 night auto|0|1|2 | bat
 gallery open|close|next|prev|play|look|delete
@@ -203,6 +203,22 @@ Charging is done by the board's charger (ETA6098, fed from the USB 5 V rail): pl
 USB-C cable into the USB-UART port charges the cells on the BAT connector, with the camera
 on or off. The charge current comes from the board's ISET resistor and has not been read
 off the schematic; two LP653454 cells in parallel took a few hours from mostly empty.
+
+## USB storage
+
+`storage/usb_storage.c`. A card has one owner at a time, so this is a mode: "USB storage"
+in Settings (serial: `usb on|off`) unmounts the card from the camera, opens it again as raw
+sectors (`sd_card_open_raw`) and gives those to TinyUSB's mass-storage class on the
+high-speed OTG port. The page shows whether a computer is connected or has ejected the
+drive; "Done" takes the card back and mounts it. The shutter does nothing meanwhile.
+
+esp_tinyusb 1.7 cannot be uninstalled on the P4: its teardown addresses root port 0 and
+the high-speed port is port 1, so it fails half way and keeps the PHY. The driver is
+therefore installed on first use and stays; leaving the mode disconnects from the bus and
+stops the TinyUSB task, entering it again restarts the task and reconnects.
+
+Entering and leaving was tried on the device (three times in a row, photo saved
+afterwards). A computer on the OTG port has not been tried yet.
 
 ## Small things
 

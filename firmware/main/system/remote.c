@@ -27,6 +27,7 @@
 #include "settings.h"
 #include "gallery.h"
 #include "battery.h"
+#include "usb_storage.h"
 
 static const char *TAG = "remote";
 
@@ -257,6 +258,11 @@ static void handle(char *line)
         battery_get(&b);
         printf("bat: %s, %lu mV (pin %lu mV), %d%%%s%s\n", k_state[b.state], (unsigned long)b.mv,
                (unsigned long)b.pin_mv, b.percent, b.low ? ", low" : "", b.critical ? ", critical" : "");
+    } else if (!strcmp(line, "usb")) {
+        static const char *const k_usb[] = { "off", "waiting for a computer", "connected", "ejected by the computer" };
+        if (!strcmp(arg, "on"))       ui_live_usb_storage(true);
+        else if (!strcmp(arg, "off")) ui_live_usb_storage(false);
+        printf("usb: %s\n", k_usb[usb_storage_state()]);
     } else if (!strcmp(line, "eject")) {
         capture_sd_eject();                     /* unmount; the next photo mounts the card again */
     } else if (!strcmp(line, "ls")) {
@@ -269,7 +275,7 @@ static void handle(char *line)
         cmd_sdbench();
     } else if (!strcmp(line, "help")) {
         printf("commands: photo | video | dump | stilldump | uidump | zoom [1..6] | fx <id> | amount <0..1> | bar 0/1 | edit [fx]|close | param <fx> <id> <value> | knob <steps>|click|reroll | idle [poke] | recipe | "
-               "preset list|save N|load N|clear N|panel 0/1 | settings 0/1 | set burst|h264|hires|quality <n> | night auto|0|1|2 | bat | gallery open|close|next|prev|play|look|delete | ae | eject | ls | get <file> | reg <hex> [hex] | tele <x0> <y0> | sdbench\n");
+               "preset list|save N|load N|clear N|panel 0/1 | settings 0/1 | set burst|h264|hires|quality <n> | night auto|0|1|2 | bat | gallery open|close|next|prev|play|look|delete | ae | eject | usb [on|off] | ls | get <file> | reg <hex> [hex] | tele <x0> <y0> | sdbench\n");
     } else {
         printf("unknown command '%s' (try help)\n", line);
     }

@@ -39,6 +39,7 @@ void ui_live_adjust_amount(int steps);                  /* rotary knob: 2 % per 
 void ui_live_reroll(void);                              /* new seed */
 void ui_live_next_preset(void);                         /* cycle through the stored presets */
 bool ui_live_preset(int slot, bool save);     /* slot 0..PRESET_SLOTS-1: store the current look, or recall */
+void ui_live_usb_storage(bool on);             /* enter / leave USB storage mode, with its page */
 void ui_live_show_panel(int panel, bool show); /* open / close a panel: 0 presets, 1 settings */
 
 #ifdef __cplusplus

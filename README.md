@@ -52,6 +52,8 @@ live, the shutter burns the effect into the saved photo or video, and every shot
   four starter looks are filled in on first boot.
 - **Gallery**: browse the photos and play the videos on the card, delete them, or take the
   look of any picture back into the camera ("Use look" reads its recipe sidecar).
+- **USB storage**: Settings has a "USB storage" button that hands the SD card to a
+  computer as a USB drive over the board's USB OTG port; "Done" takes it back.
 - **Sounds**: a shutter click and recording beeps through the board's speaker connector.
 - **Settings** for mirror, flip, photo size, idle dimming, sound, burst, video format and
   preview quality, stored in flash. The panel also shows the firmware version.
@@ -68,7 +70,7 @@ live, the shutter burns the effect into the saved photo or video, and every shot
 | Presets button (list) | Eight slots: the disk icon stores the current look, tapping a row recalls it |
 | Gallery button (picture) | Browse with the arrows or by swiping; play, "Use look", delete (tap twice), close |
 | + / − (right edge) | Zoom in and out |
-| Gear button | Settings: mirror, flip, full-resolution photos, idle dimming, shutter sound, burst, video format, preview quality |
+| Gear button | Settings: mirror, flip, full-resolution photos, idle dimming, shutter sound, burst, video format, low light, preview quality, USB storage |
 | BOOT button, short press | Take a photo, or a burst if one is set (in the gallery: back to the camera) |
 | BOOT button, hold 0.7 s | Start or stop video recording |
 
@@ -216,6 +218,8 @@ Waiting for hardware or a test:
 - [ ] Battery: the percentage comes from a typical LiPo curve, check it against a full
       discharge; the board has no charging signal, so "+" (charging) is a guess from the
       voltage rising (charging over the USB-UART port itself works, a few hours for two cells)
+- [ ] USB storage: entering and leaving the mode works on the device (the card comes back
+      intact); it has not been connected to a computer yet
 - [ ] Try the wired controls on the header with real switches and an encoder
 - [ ] Build and try the `rev3_x` profile on a revision 3.x board; add it to the workflow
 - [ ] Flash the single merged release image to a board (so far it has only been compared,
@@ -248,7 +252,6 @@ Video and gallery:
 
 Connectivity:
 
-- [ ] USB mass-storage mode, so the card shows up on a PC over the OTG port
 - [ ] Wi-Fi gallery or transfer through the board's ESP32-C6
 
 Project:

@@ -15,3 +15,6 @@ dependencies:
   # GPIO button driver (shutter) and rotary encoder
   espressif/button: "^4"
   espressif/knob: "^1"
+
+  # USB device stack: the SD card as a USB drive over the OTG port
+  espressif/esp_tinyusb: "~1.7"

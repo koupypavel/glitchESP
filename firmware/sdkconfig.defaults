@@ -56,6 +56,14 @@ CONFIG_LV_USE_FONT_COMPRESSED=y
 CONFIG_LV_TXT_BREAK_CHARS=" ,.;:-_"
 CONFIG_LV_USE_CANVAS=y
 
+# USB storage mode: the SD card as a USB drive on the OTG port (high speed)
+CONFIG_TINYUSB_MSC_ENABLED=y
+CONFIG_TINYUSB_MSC_MOUNT_PATH="/usbsd"
+CONFIG_TINYUSB_TASK_AFFINITY_CPU0=y
+CONFIG_TINYUSB_DESC_MANUFACTURER_STRING="glitchESP"
+CONFIG_TINYUSB_DESC_PRODUCT_STRING="glitchESP camera"
+CONFIG_TINYUSB_DESC_MSC_STRING="glitchESP SD card"
+
 # The effect loop runs flat out on core 1; do not let the idle-task watchdog fire there
 CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
 

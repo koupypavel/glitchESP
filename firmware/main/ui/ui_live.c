@@ -14,6 +14,7 @@
 #include "gallery.h"
 #include "ui_editor.h"
 #include "battery.h"
+#include "usb_storage.h"
 
 static const char *TAG = "ui_live";
 
@@ -415,6 +416,94 @@ static void settings_quality_cb(lv_event_t *e)
     settings_set(&cfg);
 }
 
+/* ---- USB storage page ---- */
+
+static lv_obj_t *s_usb;         /* full-screen page, NULL when closed */
+static lv_obj_t *s_usb_state;
+
+static void usb_state_refresh(void)
+{
+    if (!s_usb) return;
+    static const char *const k_text[] = {
+        "",
+        "Waiting for a computer on the OTG port",
+        "Connected: the card is a drive on the computer",
+        "Ejected by the computer: safe to press Done",
+    };
+    lv_label_set_text(s_usb_state, k_text[usb_storage_state()]);
+}
+
+static void usb_close(void)
+{
+    if (!s_usb) return;
+    usb_storage_stop();
+    lv_obj_delete(s_usb);
+    s_usb = NULL;
+    toast_show(capture_sd_available() ? "SD card back in the camera" : "no SD card", 2000);
+}
+
+static void usb_done_cb(lv_event_t *e) { (void)e; usb_close(); }
+
+static void settings_close_cb(lv_event_t *e);
+
+static void usb_open(void)
+{
+    if (s_usb) return;
+    esp_err_t ret = usb_storage_start();
+    if (ret != ESP_OK) {
+        toast_show(ret == ESP_ERR_NOT_FOUND ? "no SD card" :
+                   ret == ESP_ERR_INVALID_STATE ? "busy: try again after the recording" : "USB storage failed", 2500);
+        return;
+    }
+    settings_close_cb(NULL);
+    s_usb = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(s_usb, FP_OUT_W, FP_OUT_H);
+    lv_obj_align(s_usb, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_bg_color(s_usb, lv_color_hex(0x181818), 0);
+    lv_obj_set_style_bg_opa(s_usb, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(s_usb, 0, 0);
+    lv_obj_set_style_radius(s_usb, 0, 0);
+    lv_obj_set_style_pad_all(s_usb, 40, 0);
+    lv_obj_remove_flag(s_usb, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *icon = lv_label_create(s_usb);
+    lv_obj_set_style_text_font(icon, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(icon, lv_color_hex(0xE0007A), 0);
+    lv_label_set_text(icon, LV_SYMBOL_USB "  USB storage");
+    lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 300);
+
+    lv_obj_t *text = lv_label_create(s_usb);
+    lv_obj_set_style_text_font(text, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(text, lv_color_white(), 0);
+    lv_obj_set_style_text_align(text, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(text, FP_OUT_W - 120);
+    lv_label_set_long_mode(text, LV_LABEL_LONG_WRAP);
+    lv_label_set_text(text, "Connect the USB OTG port to a computer: the SD card shows up as a drive.\n\n"
+                            "The camera cannot take photos meanwhile.\n\n"
+                            "Eject the drive on the computer before pressing Done.");
+    lv_obj_align(text, LV_ALIGN_TOP_MID, 0, 380);
+
+    s_usb_state = lv_label_create(s_usb);
+    lv_obj_set_style_text_font(s_usb_state, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(s_usb_state, lv_color_hex(0x60E0A0), 0);
+    lv_obj_set_style_text_align(s_usb_state, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(s_usb_state, FP_OUT_W - 120);
+    lv_obj_align(s_usb_state, LV_ALIGN_TOP_MID, 0, 640);
+
+    lv_obj_t *done = lv_button_create(s_usb);
+    lv_obj_set_size(done, 360, 80);
+    lv_obj_set_style_bg_color(done, lv_color_hex(0xE0007A), 0);
+    lv_obj_align(done, LV_ALIGN_TOP_MID, 0, 740);
+    lv_obj_t *dl = lv_label_create(done);
+    lv_obj_set_style_text_font(dl, &lv_font_montserrat_24, 0);
+    lv_label_set_text(dl, "Done");
+    lv_obj_center(dl);
+    lv_obj_add_event_cb(done, usb_done_cb, LV_EVENT_CLICKED, NULL);
+    usb_state_refresh();
+}
+
+static void usb_open_cb(lv_event_t *e) { (void)e; usb_open(); }
+
 static void settings_close_cb(lv_event_t *e)
 {
     (void)e;
@@ -450,7 +539,7 @@ static void settings_open_cb(lv_event_t *e)
     if (s_settings) return;
     const settings_t *cfg = settings_get();
     s_settings = lv_obj_create(lv_screen_active());
-    lv_obj_set_size(s_settings, FP_OUT_W - 60, 780);
+    lv_obj_set_size(s_settings, FP_OUT_W - 60, 846);
     lv_obj_align(s_settings, LV_ALIGN_CENTER, 0, -80);
     lv_obj_set_style_bg_color(s_settings, lv_color_hex(0x181818), 0);
     lv_obj_set_style_bg_opa(s_settings, LV_OPA_COVER, 0);
@@ -481,6 +570,15 @@ static void settings_open_cb(lv_event_t *e)
                      settings_video_cb);
     add_dropdown_row(s_settings, "Low light", "Auto\nOff\nAlways", cfg->low_light, settings_low_light_cb);
     add_dropdown_row(s_settings, "Preview quality", "Auto\nFull\nHalf", cfg->quality, settings_quality_cb);
+
+    lv_obj_t *usb = lv_button_create(s_settings);
+    lv_obj_set_size(usb, LV_PCT(100), 56);
+    lv_obj_set_style_bg_color(usb, lv_color_hex(0x2060C0), 0);
+    lv_obj_t *ul = lv_label_create(usb);
+    lv_obj_set_style_text_font(ul, &lv_font_montserrat_20, 0);
+    lv_label_set_text(ul, LV_SYMBOL_USB "  USB storage (SD card to a computer)");
+    lv_obj_center(ul);
+    lv_obj_add_event_cb(usb, usb_open_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *close = lv_button_create(s_settings);
     lv_obj_set_size(close, LV_PCT(100), 56);
@@ -676,6 +774,7 @@ static void status_timer_cb(lv_timer_t *t)
                           (unsigned long)(frame_pipeline_get_fx_us() / 1000),
                           capture_sd_available() ? "SD ok" : "no SD",
                           (unsigned long)capture_get_count(), battery_text(bat, sizeof(bat)));
+    usb_state_refresh();
     static int s_tick;
     if (++s_tick % 5 == 0) capture_sd_poll();               /* a card put in after boot */
     /* a minute without input turns the backlight down; recording counts as input */
@@ -860,6 +959,14 @@ void ui_live_show_panel(int panel, bool show)
         if (show) settings_open_cb(NULL);
         else      settings_close_cb(NULL);
     }
+    ui_lvgl_unlock();
+}
+
+void ui_live_usb_storage(bool on)
+{
+    if (!ui_lvgl_lock(500)) return;
+    if (on) usb_open();
+    else    usb_close();
     ui_lvgl_unlock();
 }
 

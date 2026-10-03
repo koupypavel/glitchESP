@@ -96,6 +96,7 @@ void capture_sd_poll(void);                  /* call every few seconds: looks fo
 /* Unmount the card (safe to pull). The next photo or recording mounts it again, which is
  * also how a card that was put in after boot gets picked up. */
 void capture_sd_eject(void);
+void capture_sd_reclaim(void);               /* after an eject: mount the card again now */
 void capture_set_serial_dump(bool enable);   /* no SD card: dump JPEG as base64 over serial */
 uint32_t capture_get_count(void);
 

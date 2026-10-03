@@ -245,6 +245,20 @@ dependencies:
       registry_url: https://components.espressif.com
       type: service
     version: 0.0.9
+  espressif/esp_tinyusb:
+    component_hash: 6a50305bc61c7a361da8c0833642be824e92dacb0a6001719a832a4e96e471bf
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    - name: espressif/tinyusb
+      registry_url: https://components.espressif.com
+      require: public
+      version: '>=0.14.2'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.7.6~2
   espressif/esp_video:
     component_hash: ba8f4aa63ad9bda3cc18a3afe1b9ba5b39c7359a6ad79392a94e42ba8cf9e5f8
     dependencies:
@@ -340,6 +354,22 @@ dependencies:
       registry_url: https://components.espressif.com
       type: service
     version: 1.6.58~2
+  espressif/tinyusb:
+    component_hash: 16c8d774dab1f484d3e0c0f61105624d2424bbae864efd19818baf7b451b41e7
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    targets:
+    - esp32s2
+    - esp32s3
+    - esp32p4
+    - esp32h4
+    - esp32s31
+    version: 0.21.0~2
   espressif/usb_host_uvc:
     component_hash: f20c4e4dea50536e2e29daaf589b5f5984402284c155867daef27d6b64869f78
     dependencies:
@@ -444,12 +474,13 @@ dependencies:
     version: 2.1.0
 direct_dependencies:
 - espressif/button
+- espressif/esp_tinyusb
 - espressif/esp_video
 - espressif/knob
 - idf
 - lvgl/lvgl
 - waveshare/esp32_p4_wifi6_touch_lcd_5
 - waveshare/esp_lcd_hx8394
-manifest_hash: 71551101fd9638424e68c09b76b14f3e1767d9f2efe2b82ea1aca67df9c9acd6
+manifest_hash: acccc4a8f40ebcbe14b50ccc8f9d9f4dfa1e610368216190af719d6177c83709
 target: esp32p4
 version: 2.0.0

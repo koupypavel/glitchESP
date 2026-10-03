@@ -183,9 +183,10 @@ static esp_err_t encode(const uint8_t *rgb565, int quality, uint32_t *out_size)
 
 /* The card may have been put in after boot: try to mount it when something wants to save
  * (at most every few seconds, a failed attempt takes a while). */
+static int64_t s_last_try;
+
 static bool sd_ensure(void)
 {
-    static int64_t s_last_try;
     if (s_c.sd_ok) return true;
     int64_t now = esp_timer_get_time();
     if (s_last_try && now - s_last_try < 3000000) return false;
@@ -231,6 +232,13 @@ void capture_sd_eject(void)
     s_c.ejected = true;
     sd_card_unmount();
     ESP_LOGI(TAG, "SD card released");
+}
+
+void capture_sd_reclaim(void)
+{
+    s_last_try = 0;
+    s_c.ejected = false;
+    sd_ensure();
 }
 
 /* Write the encoded JPEG in jpg_buf as the next IMG_nnnn.jpg plus its sidecar. */

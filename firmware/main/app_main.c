@@ -28,6 +28,7 @@
 #include "remote.h"
 #include "cam_ctrl.h"
 #include "gallery.h"
+#include "usb_storage.h"
 #include "presets.h"
 #include "sound.h"
 #include "battery.h"
@@ -54,7 +55,7 @@ static void on_video(void *user)
 {
     (void)user;
     ui_lvgl_poke();
-    if (gallery_active()) return;
+    if (gallery_active() || usb_storage_active()) return;
     if (capture_video_active()) {
         capture_video_stop();
         sound_play(SOUND_REC_STOP);
@@ -75,6 +76,7 @@ static void on_shutter(void *user)
 {
     (void)user;
     ui_lvgl_poke();
+    if (usb_storage_active()) return;       /* the computer has the card */
     if (gallery_active()) {                 /* the shutter leads back to the camera */
         gallery_close();
         return;
