@@ -27,6 +27,12 @@ At night:
 |---|---|---|
 | ![channel shift](docs/photos/night_chanshift.jpg) | ![tracers, hue drift, drift](docs/photos/night_tracers_hue.jpg) | ![VHS, light trails](docs/photos/night_vhs_trails.jpg) |
 
+Video recorded on the camera (clips of 7 to 9 seconds, scaled down to half size):
+
+| Drift + breathe | Kaleido | Night: hue drift + drift |
+|---|---|---|
+| ![drift and breathe](docs/photos/video_drift_breathe.webp) | ![kaleido](docs/photos/video_kaleido.webp) | ![hue drift and drift at night](docs/photos/video_night_hue_drift.webp) |
+
 More effects, rendered by the PC harness on synthetic test scenes:
 
 | Channel shift | Kaleido | Drift | Diffraction |
@@ -278,7 +284,6 @@ Connectivity:
 
 Project:
 
-- [ ] A video from the device in this README
 - [ ] Enclosure ([`hardware/enclosure`](hardware/enclosure), printed and in use): lanyard eye
 
 ## License
