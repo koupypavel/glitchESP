@@ -5,6 +5,7 @@ Each release has a section here; the GitHub release notes are taken from it.
 ## Unreleased
 
 - Three effects for the night: starburst, light trails, neon. The effect buttons now scroll.
+- Palette effect: four to six fixed colours with a line dither, seven palettes.
 - Low-light mode: longer frames (10 and 6.7 fps) with two and three times the exposure when
   it is dark, frames averaged against noise, night photos averaged from six frames. Setting
   "Low light": Auto, Off, Always.

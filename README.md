@@ -13,19 +13,20 @@ live, the shutter burns the effect into the saved photo or video, and every shot
 |---|---|---|---|
 | ![channel shift](tools/fxlab/samples/out_chanshift.png) | ![kaleido](tools/fxlab/samples/out_kaleido.png) | ![drift](tools/fxlab/samples/out_drift.png) | ![diffraction](tools/fxlab/samples/out_diffract.png) |
 
-| VHS | Databend | Slit scan | Squint |
+| VHS | Databend | Palette | Squint |
 |---|---|---|---|
-| ![VHS](tools/fxlab/samples/out_vhs.png) | ![databend](tools/fxlab/samples/out_databend.png) | ![slit scan](tools/fxlab/samples/out_slitscan.png) | ![squint](tools/fxlab/samples/out_squint.png) |
+| ![VHS](tools/fxlab/samples/out_vhs.png) | ![databend](tools/fxlab/samples/out_databend.png) | ![palette](tools/fxlab/samples/out_palette.png) | ![squint](tools/fxlab/samples/out_squint.png) |
 
 *Effects rendered by the PC harness on synthetic test scenes.*
 
 ## What it does
 
 - **Live preview** at about 20 fps (10 to 18 fps with effects, depending on the chain), with
-  up to three effects chained. Nineteen effects so far:
+  up to three effects chained. Twenty effects so far:
   channel shift, scanline smear, bit crush, blocks, wave, pixel sort, tracers, hue drift,
-  kaleido, diffraction, drift, breathe, VHS, slit scan, databend, squint (a painter's
-  squint: blur away the detail, keep the big shapes of light and shadow), and three made
+  kaleido, diffraction, drift, breathe, VHS, slit scan, databend, palette (a handful of
+  fixed colours with a line dither, seven palettes from acid to Game Boy), squint (a
+  painter's squint: blur away the detail, keep the big shapes of light and shadow), and three made
   for the night: starburst (rays from every light), light trails (moving lights leave
   glowing trails) and neon (glowing outlines on a dark picture).
 - **Low light**: when it gets dark the camera slows down by itself, from 20 to 10 and then
@@ -201,7 +202,7 @@ what was learned about performance on the ESP32-P4.
 
 ## Status
 
-Working on the device (ESP32-P4 revision v1.3): preview, all nineteen effects on both cores,
+Working on the device (ESP32-P4 revision v1.3): preview, all twenty effects on both cores,
 parameter editing, presets, zoom, settings, photos (including full-resolution stills and
 bursts), video (Motion-JPEG and H.264) saved to the card, the gallery, the battery level
 and the low-light mode. The low-light mode and the three night effects were tried indoors

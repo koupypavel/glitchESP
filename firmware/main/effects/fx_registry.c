@@ -26,6 +26,7 @@ extern const fx_desc_t fx_squint;
 extern const fx_desc_t fx_starburst;
 extern const fx_desc_t fx_lighttrails;
 extern const fx_desc_t fx_neon;
+extern const fx_desc_t fx_palette;
 
 static const fx_desc_t *const s_registry[] = {
     &fx_chanshift,
@@ -47,6 +48,7 @@ static const fx_desc_t *const s_registry[] = {
     &fx_starburst,
     &fx_lighttrails,
     &fx_neon,
+    &fx_palette,
 };
 
 static fx_parallel_fn s_parallel;

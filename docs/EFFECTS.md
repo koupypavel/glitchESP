@@ -190,6 +190,20 @@ stuck block across the row. This is an imitation, not real file corruption: it i
 repeatable from the seed and works at any frame size, which a real encode, corrupt and
 decode round trip would not be.
 
+**Palette** (`fx_palette.c`). A camcorder tape played through an old graphics card: the
+picture is redrawn with four to six fixed colours and an ordered dither in horizontal
+lines. Seven palettes: acid (magenta, cyan, lime, pink on dark), crimson and lime with
+steel blue, CGA, Game Boy green, vapour, ember, and plain ink (black and white, where the
+dither does all the work). Every pixel goes to the nearest palette colour; the dither adds
+a per-pixel offset from a 4×4 pattern before the match, so flat areas break into lines of
+the two nearest colours. "Hue" turns the picture before matching, which decides what
+colour the sky or a face ends up as: since a hue rotation keeps distances, the palette is
+turned the other way when the table is built instead of turning every pixel. The pattern
+cell ("size", 2 by default) is in reference pixels, so the lines are as tall in a photo as
+on the preview. The match is a 4096-entry table reached through per-channel tables that
+already hold the dither offset: four loads per pixel. The amount knob walks through the
+palettes.
+
 ### Painter's set
 
 **Squint** (`fx_squint.c`). What a painter does to judge a scene: half-close the eyes so the
