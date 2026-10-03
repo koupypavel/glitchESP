@@ -2,18 +2,44 @@
 
 Each release has a section here; the GitHub release notes are taken from it.
 
-## Unreleased
+## [0.2.0] - 2026-10-03
 
-- Three effects for the night: starburst, light trails, neon. The effect buttons now scroll.
-- Palette effect: four to six fixed colours with a line dither, seven palettes.
-- USB storage mode: the SD card as a USB drive on the OTG port (Settings, "USB storage").
-  Tried with a Windows PC.
+Built for the same board as 0.1.0 (ESP32-P4 revision v1.x, `rev1_3` profile, ESP-IDF
+v5.5.5). Everything listed was tried on a revision v1.3 board unless noted.
+
+**New**
+
+- Four effects, twenty in all. Three for the night: starburst (rays from every light),
+  light trails (moving lights leave glowing trails), neon (glowing outlines on a dark
+  picture). And palette: four to six fixed colours with a line dither, seven palettes
+  from acid to Game Boy. The effect buttons now scroll.
 - Low-light mode: longer frames (10 and 6.7 fps) with two and three times the exposure when
   it is dark, frames averaged against noise, night photos averaged from six frames. Setting
   "Low light": Auto, Off, Always.
 - Battery level on the status line, low-battery warning, recordings closed before the
   battery is empty, a reminder not to leave the camera unattended when charging starts.
-- Enclosure in `hardware/enclosure` (printed and in use).
+- USB storage mode: the SD card as a USB drive on the OTG port (Settings, "USB storage").
+- Enclosure in `hardware/enclosure`: a printable case with battery bay, speaker pocket,
+  shutter switch, encoder, tripod thread and lens hood (printed and in use).
+
+**Known limits**
+
+- The low-light mode and the night effects were tried indoors only.
+- The battery percentage comes from a typical LiPo curve; the board has no charging
+  signal, so the "+" (charging) mark is inferred from the voltage rising.
+- USB storage was used with a Windows PC; the copy speed was not measured. After the mode
+  has been used, the USB hardware stays powered until the camera is restarted.
+- H.264 recordings cannot be played on the device and reach 7 to 9 fps.
+- The `rev3_x` build profile has not been tried on hardware.
+- The single merged image has not been flashed to a board yet. It contains the same three
+  images as the `parts` archive, which is what a normal flash writes.
+
+**Installing**
+
+Write `glitchesp-v0.2.0-rev1_3-merged.bin` to address 0 with esptool (this also resets the
+settings and presets), or flash the three images from the `parts` archive with
+`esptool.py --chip esp32p4 write_flash @flash_args` to keep them. See "Install a release"
+in the README.
 
 ## [0.1.0] - 2026-10-01
 

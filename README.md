@@ -132,10 +132,10 @@ A first install, from the single merged image (this also clears the settings and
 stored in flash):
 
 ```bash
-python -m esptool --chip esp32p4 -p COM10 -b 460800 write_flash 0x0 glitchesp-v0.1.0-rev1_3-merged.bin
+python -m esptool --chip esp32p4 -p COM10 -b 460800 write_flash 0x0 glitchesp-v0.2.0-rev1_3-merged.bin
 ```
 
-An update that keeps settings and presets: unpack `glitchesp-v0.1.0-rev1_3-parts.zip` and
+An update that keeps settings and presets: unpack `glitchesp-v0.2.0-rev1_3-parts.zip` and
 run this inside the unpacked folder:
 
 ```bash
