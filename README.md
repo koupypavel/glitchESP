@@ -9,6 +9,26 @@ A handheld glitch-art camera built on the Waveshare **ESP32-P4-WIFI6-Touch-LCD-5
 live, the shutter burns the effect into the saved photo or video, and every shot gets a small
 "recipe" file so its look can be reproduced.
 
+![the camera in its printed case](docs/photos/enclosure_front.jpg)
+
+Photos straight from the camera, one scene through different effects:
+
+| Drift | Hue drift | Hue drift | Diffraction |
+|---|---|---|---|
+| ![drift](docs/photos/car_drift.jpg) | ![hue drift](docs/photos/car_hue_green.jpg) | ![hue drift](docs/photos/car_hue_magenta.jpg) | ![diffraction](docs/photos/car_diffraction.jpg) |
+
+| Databend | Blocks + bit crush + pixel sort | Squint | Tracers + hue drift + drift |
+|---|---|---|---|
+| ![databend](docs/photos/car_databend.jpg) | ![blocks, bit crush, pixel sort](docs/photos/car_blocks_sort.jpg) | ![squint](docs/photos/car_squint.jpg) | ![tracers, hue drift, drift](docs/photos/car_tracers_drift.jpg) |
+
+At night:
+
+| Channel shift | Tracers + hue drift + drift | VHS + light trails |
+|---|---|---|
+| ![channel shift](docs/photos/night_chanshift.jpg) | ![tracers, hue drift, drift](docs/photos/night_tracers_hue.jpg) | ![VHS, light trails](docs/photos/night_vhs_trails.jpg) |
+
+More effects, rendered by the PC harness on synthetic test scenes:
+
 | Channel shift | Kaleido | Drift | Diffraction |
 |---|---|---|---|
 | ![channel shift](tools/fxlab/samples/out_chanshift.png) | ![kaleido](tools/fxlab/samples/out_kaleido.png) | ![drift](tools/fxlab/samples/out_drift.png) | ![diffraction](tools/fxlab/samples/out_diffract.png) |
@@ -16,8 +36,6 @@ live, the shutter burns the effect into the saved photo or video, and every shot
 | VHS | Databend | Palette | Squint |
 |---|---|---|---|
 | ![VHS](tools/fxlab/samples/out_vhs.png) | ![databend](tools/fxlab/samples/out_databend.png) | ![palette](tools/fxlab/samples/out_palette.png) | ![squint](tools/fxlab/samples/out_squint.png) |
-
-*Effects rendered by the PC harness on synthetic test scenes.*
 
 ## What it does
 
@@ -149,7 +167,11 @@ speaker pocket, openings for every port and button, a shutter switch, a rotary e
 a tripod thread and an adjustable lens hood, as STL files and as the CadQuery script that
 generates them. The current version (4) has been printed and is in use.
 
-![enclosure](hardware/enclosure/img/back.png)
+| Back: lens hood, speaker grille | Inside: two LP653454 cells in the bay |
+|---|---|
+| ![back of the case](docs/photos/enclosure_back.jpg) | ![inside the case](docs/photos/enclosure_inside.jpg) |
+
+![enclosure model](hardware/enclosure/img/back.png)
 
 ## Build and flash
 
@@ -256,7 +278,7 @@ Connectivity:
 
 Project:
 
-- [ ] Photos and a video from the device in this README (the samples above are PC renders)
+- [ ] A video from the device in this README
 - [ ] Enclosure ([`hardware/enclosure`](hardware/enclosure), printed and in use): lanyard eye
 
 ## License
