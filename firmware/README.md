@@ -218,7 +218,8 @@ therefore installed on first use and stays; leaving the mode disconnects from th
 stops the TinyUSB task, entering it again restarts the task and reconnects.
 
 Entering and leaving was tried on the device (three times in a row, photo saved
-afterwards). A computer on the OTG port has not been tried yet.
+afterwards), and the drive was used from a Windows PC. The copy speed has not been
+measured.
 
 ## Small things
 

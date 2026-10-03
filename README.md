@@ -218,8 +218,8 @@ Waiting for hardware or a test:
 - [ ] Battery: the percentage comes from a typical LiPo curve, check it against a full
       discharge; the board has no charging signal, so "+" (charging) is a guess from the
       voltage rising (charging over the USB-UART port itself works, a few hours for two cells)
-- [ ] USB storage: entering and leaving the mode works on the device (the card comes back
-      intact); it has not been connected to a computer yet
+- [ ] USB storage works with a Windows PC; the copy speed has not been measured, and
+      macOS and Linux have not been tried
 - [ ] Try the wired controls on the header with real switches and an encoder
 - [ ] Build and try the `rev3_x` profile on a revision 3.x board; add it to the workflow
 - [ ] Flash the single merged release image to a board (so far it has only been compared,
