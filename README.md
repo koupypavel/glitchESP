@@ -95,6 +95,29 @@ These are implemented but have not been tried with real switches yet.
 Developed and tested on ESP32-P4 silicon **revision v1.3**. Revision 3.x boards need the
 `rev3_x` build profile and have not been tested.
 
+### Battery and charging
+
+The board has a connector (MX1.25) for a single-cell 3.7 V lithium battery and a charger
+chip on it; the enclosure's bay takes one or two LP653454 pouch cells in parallel (every
+cell must have its own protection circuit). The camera runs from the battery alone and
+shows its level on the status line.
+
+- **Charging:** plug a USB-C cable from any 5 V USB charger or computer into the
+  **USB-UART port** (the one used for flashing). The board's charger does the rest; the
+  camera can be on or off. Two cells take a few hours from nearly empty.
+- **Indication:** the board has no charging signal, so the firmware watches the voltage:
+  while it rises the status line shows a `+` before the percentage (about a minute after
+  plugging in), and a full battery on USB shows 100 % without the `+`. When charging is
+  first detected the camera shows "charging: do not leave unattended".
+- **Low battery:** a warning at 10 %; below 3.4 V a running recording is closed so the file
+  stays readable.
+- **Power LED:** the board's power LED sits on the 5 V rail, not behind the power button,
+  so it may stay lit with the camera switched off. If that matters, put a slide switch in
+  the battery's red lead; a switched-off battery does not charge.
+
+Lithium cells are not toys: use protected cells, do not leave the first charges
+unattended, and stop if the cells get warm or swell.
+
 ## Install a release
 
 Each [release](https://github.com/koupypavel/glitchESP/releases) carries images built for
@@ -191,7 +214,7 @@ Waiting for hardware or a test:
 - [ ] Try the low-light mode and the night effects outside at night; tune the levels
 - [ ] Battery: the percentage comes from a typical LiPo curve, check it against a full
       discharge; the board has no charging signal, so "+" (charging) is a guess from the
-      voltage rising
+      voltage rising (charging over the USB-UART port itself works, a few hours for two cells)
 - [ ] Try the wired controls on the header with real switches and an encoder
 - [ ] Build and try the `rev3_x` profile on a revision 3.x board; add it to the workflow
 - [ ] Flash the single merged release image to a board (so far it has only been compared,

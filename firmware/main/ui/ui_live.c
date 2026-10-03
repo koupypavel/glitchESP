@@ -642,10 +642,11 @@ static void create_control_bar(lv_obj_t *parent)
 }
 
 /* Battery for the status line, and what to do when it runs low: warn once at 10 %, and
- * close a recording before the board browns out, so the video file stays readable. */
+ * close a recording before the board browns out, so the video file stays readable.
+ * The first time charging is seen, remind the user not to leave the pack unattended. */
 static const char *battery_text(char *buf, size_t len)
 {
-    static bool s_warned;
+    static bool s_warned, s_was_charging;
     battery_info_t b;
     battery_get(&b);
     if (b.state == BATTERY_UNKNOWN || b.state == BATTERY_NONE) return "";
@@ -654,6 +655,9 @@ static const char *battery_text(char *buf, size_t len)
         toast_show("battery low", 3000);
     }
     if (!b.low) s_warned = false;
+    bool charging = b.state == BATTERY_CHARGING;
+    if (charging && !s_was_charging) toast_show("charging: do not leave unattended", 5000);
+    s_was_charging = charging;
     if (b.critical && capture_video_active()) {
         capture_video_stop();
         toast_show("battery empty: recording stopped", 4000);

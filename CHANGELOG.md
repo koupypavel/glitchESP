@@ -9,7 +9,7 @@ Each release has a section here; the GitHub release notes are taken from it.
   it is dark, frames averaged against noise, night photos averaged from six frames. Setting
   "Low light": Auto, Off, Always.
 - Battery level on the status line, low-battery warning, recordings closed before the
-  battery is empty.
+  battery is empty, a reminder not to leave the camera unattended when charging starts.
 - Enclosure in `hardware/enclosure` (printed and in use).
 
 ## [0.1.0] - 2026-10-01

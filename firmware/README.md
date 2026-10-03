@@ -196,7 +196,13 @@ mapped to a percentage with a typical LiPo discharge curve. The board has no sig
 "USB connected" or "charging", so charging is inferred: the voltage rising over a minute,
 or held above 4.23 V. A full cell on USB therefore shows 100 % without the "+".
 At 10 % a warning appears once; under 3.4 V a running recording is stopped so that its
-file gets closed properly. Serial: `bat`.
+file gets closed properly. When charging is first detected a toast reminds the user not to
+leave the pack unattended. Serial: `bat`.
+
+Charging is done by the board's charger (ETA6098, fed from the USB 5 V rail): plugging a
+USB-C cable into the USB-UART port charges the cells on the BAT connector, with the camera
+on or off. The charge current comes from the board's ISET resistor and has not been read
+off the schematic; two LP653454 cells in parallel took a few hours from mostly empty.
 
 ## Small things
 
