@@ -1,13 +1,12 @@
-# Builds the effect harness and the firmware on every push and pull request. A tag of the form
-# v1.2.3 also publishes a GitHub release with the flashable images and the matching section
-# of CHANGELOG.md as its notes.
+# Builds the effect harness and the firmware when a release tag of the form v1.2.3 is pushed
+# (and publishes the GitHub release with the flashable images and the matching section of
+# CHANGELOG.md as its notes), or when started by hand. Not on ordinary pushes: the GitHub
+# Actions minutes are saved for releases.
 name: Firmware
 
 on:
   push:
-    branches: [main]
     tags: ["v*"]
-  pull_request:
   workflow_dispatch:
 
 permissions:

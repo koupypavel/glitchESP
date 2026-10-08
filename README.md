@@ -198,8 +198,9 @@ On Linux and macOS, with the ESP-IDF environment active:
 ./build.sh /dev/ttyUSB0   # build and flash
 ```
 
-The component versions are pinned in `firmware/dependencies.lock`, and the GitHub workflow
-in `.github/workflows/firmware.yml` builds every push the same way.
+The component versions are pinned in `firmware/dependencies.lock`. The GitHub workflow in
+`.github/workflows/firmware.yml` builds the same way, but only for release tags or when
+started by hand, to save Actions minutes.
 
 Details, the module layout and design notes are in [`firmware/README.md`](firmware/README.md).
 
