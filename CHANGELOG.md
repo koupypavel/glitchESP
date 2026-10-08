@@ -2,6 +2,10 @@
 
 Each release has a section here; the GitHub release notes are taken from it.
 
+## Unreleased
+
+- Dream effect: the early AI image-hallucination look (fur, rings, eyes).
+
 ## [0.3.0] - 2026-10-03
 
 Built for the same board as before (ESP32-P4 revision v1.x, `rev1_3` profile, ESP-IDF

@@ -236,6 +236,17 @@ boil; the swirl centres drift with the frame number, which makes flat areas turn
 104 ms (9 fps) at the default stroke size, 80 ms (12 fps) with large strokes; a first
 version that searched the nearest stroke for every pixel took 312 ms.
 
+**Dream** (`fx_dream.c`). The look of the early "DeepDream" hallucinations. The real thing
+runs a neural network backwards dozens of times per image, which is out of reach here, so
+this is its ingredients: every pixel smeared along the nearest edge's tangent (five taps
+along a coarse gradient field, with stripes across the smear: fur), detail pushed away from
+the local average and colour away from grey, the coarse brightness turned into contour
+lines (rings around every blob), and eyes painted over the brightest and darkest blobs. The
+eyes follow their blobs from frame to frame, grow in over a second and fade out when the
+blob goes, and each has its own iris colour from the seed. "Eyes" sets how many (0 for
+none), the rest are fur length, detail, rings and colour. Texture in 2x2 blocks: 88 ms
+(11 fps) at the half-resolution preview.
+
 ### Night set
 
 Made for dark scenes with a few bright lights, where most other effects have little to
